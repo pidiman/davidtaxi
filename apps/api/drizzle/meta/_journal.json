@@ -50,6 +50,13 @@
       "when": 1791042401213,
       "tag": "0006_hot_preak",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791047500020,
+      "tag": "0007_fluffy_doctor_doom",
+      "breakpoints": true
     }
   ]
 }

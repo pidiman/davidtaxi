@@ -41,6 +41,7 @@ async function shiftRides(driverId: number, shift: { startedAt: Date; endedAt: D
 
 const incidentSelect = {
   id: incidents.id,
+  kind: incidents.kind,
   description: incidents.description,
   createdAt: incidents.createdAt,
   resolvedAt: incidents.resolvedAt,
@@ -108,6 +109,8 @@ export async function incidentRoutes(app: FastifyInstance) {
     const description = str(b, 'description')!;
     if (description.length > 4000) throw new HttpError(400, 'Popis je príliš dlhý (max 4000 znakov)');
     const rideId = num(b, 'rideId', false) ?? null;
+    const kind = b.kind === 'comment' ? 'comment' : 'incident';
+    if (kind === 'comment' && rideId === null) throw new HttpError(400, 'Komentár musí byť k jazde');
     const rawPhotos = Array.isArray(b.photos) ? (b.photos as unknown[]) : [];
     if (rawPhotos.length > MAX_PHOTOS) throw new HttpError(400, `Najviac ${MAX_PHOTOS} fotiek`);
     const photos = rawPhotos.map((p) => {
@@ -129,7 +132,16 @@ export async function incidentRoutes(app: FastifyInstance) {
     const id = await db.transaction(async (tx) => {
       const [inc] = await tx
         .insert(incidents)
-        .values({ driverId: req.user.id, vehicleId, shiftId: shift?.id ?? null, rideId, description })
+        .values({
+          driverId: req.user.id,
+          vehicleId,
+          shiftId: shift?.id ?? null,
+          rideId,
+          kind,
+          description,
+          // komentár je len informácia – rovno vyriešený
+          ...(kind === 'comment' ? { resolvedAt: new Date() } : {}),
+        })
         .returning({ id: incidents.id });
       if (photos.length) {
         await tx.insert(incidentPhotos).values(
@@ -145,8 +157,8 @@ export async function incidentRoutes(app: FastifyInstance) {
     });
 
     audit(
-      'incident.reported',
-      `Incident #${id} – ${req.user.name}${shift?.vehicleCallsign ? `, auto ${shift.vehicleCallsign}` : ''}${rideId ? `, jazda #${rideId}` : ''}${photos.length ? `, ${photos.length} foto` : ''}`,
+      kind === 'comment' ? 'incident.comment' : 'incident.reported',
+      `${kind === 'comment' ? 'Komentár' : 'Incident'} #${id} – ${req.user.name}${shift?.vehicleCallsign ? `, auto ${shift.vehicleCallsign}` : ''}${rideId ? `, jazda #${rideId}` : ''}${photos.length ? `, ${photos.length} foto` : ''}`,
       {
         incidentId: id,
         driverId: req.user.id,
@@ -161,20 +173,26 @@ export async function incidentRoutes(app: FastifyInstance) {
   });
 
   // ================= Dispečing =================
-  app.get<{ Querystring: { status?: string } }>('/api/incidents', dispatch, async (req) => {
+  app.get<{ Querystring: { status?: string; kind?: string } }>('/api/incidents', dispatch, async (req) => {
     const st = req.query.status;
-    const where =
+    const kind = req.query.kind === 'comment' ? 'comment' : 'incident';
+    const where = and(
+      eq(incidents.kind, kind),
       st === 'open'
         ? isNull(incidents.resolvedAt)
         : st === 'resolved'
           ? isNotNull(incidents.resolvedAt)
-          : undefined;
+          : undefined,
+    );
     const rows = await incidentQuery().where(where).orderBy(desc(incidents.createdAt)).limit(300);
     return withPhotos(rows);
   });
 
   app.get('/api/incidents/open-count', dispatch, async () => {
-    const rows = await db.select({ id: incidents.id }).from(incidents).where(isNull(incidents.resolvedAt));
+    const rows = await db
+      .select({ id: incidents.id })
+      .from(incidents)
+      .where(and(isNull(incidents.resolvedAt), eq(incidents.kind, 'incident')));
     return { open: rows.length };
   });
 

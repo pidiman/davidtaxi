@@ -16,10 +16,22 @@ const fmtDay = (iso: string) =>
  * Celoobrazovkový formulár „Incident“: popis, fotky z fotoaparátu a voliteľne jazda zo smeny.
  * Smena = aktuálna, alebo posledná ukončená (incident sa dá nahlásiť aj dodatočne).
  */
-export function IncidentReport({ onClose, onSent }: { onClose: () => void; onSent: (i: Incident) => void }) {
+export function IncidentReport({
+  onClose,
+  onSent,
+  kind = 'incident',
+  defaultRideId = null,
+}: {
+  onClose: () => void;
+  onSent: (i: Incident) => void;
+  /** comment = komentár k jazde (dispečing ho dostane rovno ako vyriešený) */
+  kind?: 'incident' | 'comment';
+  defaultRideId?: number | null;
+}) {
+  const isComment = kind === 'comment';
   const [ctx, setCtx] = useState<IncidentContext | null>(null);
   const [text, setText] = useState('');
-  const [rideId, setRideId] = useState<number | null>(null);
+  const [rideId, setRideId] = useState<number | null>(defaultRideId);
   const [photos, setPhotos] = useState<string[]>([]);
   const [processing, setProcessing] = useState(false);
   const [sending, setSending] = useState(false);
@@ -62,12 +74,13 @@ export function IncidentReport({ onClose, onSent }: { onClose: () => void; onSen
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (!text.trim()) return setErr('Napíš, čo sa stalo');
+    if (!text.trim()) return setErr(isComment ? 'Napíš komentár' : 'Napíš, čo sa stalo');
+    if (isComment && rideId === null) return setErr('Vyber jazdu');
     setSending(true);
     setErr('');
     try {
       const inc = await api<Incident>('/api/driver/incidents', {
-        body: { description: text.trim(), rideId, photos },
+        body: { description: text.trim(), rideId, photos, kind },
       });
       onSent(inc);
     } catch (e2) {
@@ -85,7 +98,9 @@ export function IncidentReport({ onClose, onSent }: { onClose: () => void; onSen
         className="mx-auto flex min-h-[100dvh] max-w-md flex-col gap-4 px-4 pt-[max(16px,env(safe-area-inset-top))] pb-[max(16px,env(safe-area-inset-bottom))]"
       >
         <div className="flex items-center justify-between">
-          <h1 className="m-0 font-display text-3xl font-bold uppercase tracking-wide">Incident</h1>
+          <h1 className="m-0 font-display text-3xl font-bold uppercase tracking-wide">
+            {isComment ? 'Komentár k jazde' : 'Incident'}
+          </h1>
           <button
             type="button"
             onClick={onClose}
@@ -97,10 +112,14 @@ export function IncidentReport({ onClose, onSent }: { onClose: () => void; onSen
         </div>
 
         <label className="label text-sm">
-          Čo sa stalo?
+          {isComment ? 'Komentár' : 'Čo sa stalo?'}
           <textarea
             className="field min-h-32 resize-y text-base"
-            placeholder="napr. zákazník ogrcal zadné sedadlo, treba čistenie"
+            placeholder={
+              isComment
+                ? 'napr. zákazník platil kartou, čakal som 10 min, zákazník chce faktúru'
+                : 'napr. zákazník ogrcal zadné sedadlo, treba čistenie'
+            }
             value={text}
             maxLength={4000}
             onChange={(e) => setText(e.target.value)}
@@ -184,7 +203,7 @@ export function IncidentReport({ onClose, onSent }: { onClose: () => void; onSen
         {/* ---------- jazda zo smeny ---------- */}
         <div className="flex flex-col gap-2">
           <div className="text-sm text-muted">
-            Týka sa jazdy?{' '}
+            {isComment ? 'Jazda' : 'Týka sa jazdy?'}{' '}
             {shift && (
               <span className="text-soft">
                 · smena {fmtDay(shift.startedAt)}
@@ -196,12 +215,14 @@ export function IncidentReport({ onClose, onSent }: { onClose: () => void; onSen
           {!ctx && !err && <div className="text-sm text-muted">Načítavam jazdy…</div>}
           {ctx && (
             <div className="flex flex-col gap-1.5">
-              <RideOption checked={rideId === null} onSelect={() => setRideId(null)}>
-                <span className="font-semibold">Bez jazdy</span>
-                <span className="block text-[13px] text-muted">
-                  napr. škoda na aute, nehoda bez zákazníka
-                </span>
-              </RideOption>
+              {!isComment && (
+                <RideOption checked={rideId === null} onSelect={() => setRideId(null)}>
+                  <span className="font-semibold">Bez jazdy</span>
+                  <span className="block text-[13px] text-muted">
+                    napr. škoda na aute, nehoda bez zákazníka
+                  </span>
+                </RideOption>
+              )}
               {ctx.rides.map((r) => (
                 <RideOption key={r.id} checked={rideId === r.id} onSelect={() => setRideId(r.id)}>
                   <span className="flex justify-between gap-2 text-[13px] text-muted">
@@ -232,12 +253,12 @@ export function IncidentReport({ onClose, onSent }: { onClose: () => void; onSen
           className="btn-primary mt-auto h-14 rounded-2xl text-lg uppercase tracking-wide"
           disabled={sending || processing || !text.trim()}
         >
-          {sending ? 'Odosielam…' : 'Odoslať dispečingu'}
+          {sending ? 'Odosielam…' : isComment ? 'Odoslať komentár' : 'Odoslať dispečingu'}
         </button>
 
         {ctx && ctx.incidents.length > 0 && (
           <div className="flex flex-col gap-2 border-t border-line pt-3">
-            <div className="text-xs uppercase tracking-[2px] text-muted">Už nahlásené v tejto smene</div>
+            <div className="text-xs uppercase tracking-[2px] text-muted">Už odoslané v tejto smene</div>
             {ctx.incidents.map((i) => (
               <div key={i.id} className="rounded-xl bg-panel p-3 text-sm">
                 <div className="flex justify-between text-[13px] text-muted">
@@ -247,7 +268,7 @@ export function IncidentReport({ onClose, onSent }: { onClose: () => void; onSen
                     {i.photos.length ? ` · ${i.photos.length} foto` : ''}
                   </span>
                   <span className={i.resolvedAt ? 'text-taxi' : ''}>
-                    {i.resolvedAt ? 'vyriešené' : 'otvorené'}
+                    {i.kind === 'comment' ? 'komentár' : i.resolvedAt ? 'vyriešené' : 'otvorené'}
                   </span>
                 </div>
                 <div className="mt-1 whitespace-pre-wrap">{i.description}</div>

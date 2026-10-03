@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, fmtEur, fmtKm, fmtTime, type RideStatus, type ShiftRideStats, STATUS_LABEL } from '../lib/api';
+import { type Destination, DestinationChooser } from './DestinationChooser';
 
 type MyShift = {
   id: number;
@@ -41,11 +42,27 @@ const shiftLabel = (s: MyShift) =>
   `${s.endedAt ? '' : '● '}${fmtDate(s.startedAt)} ${fmtTime(s.startedAt)}–${s.endedAt ? fmtTime(s.endedAt) : 'teraz'} · auto ${s.vehicleCallsign}`;
 
 /** Celoobrazovkový prehľad jázd vodiča – aktuálna smena, s výberom starších smien. */
-export function MyRides({ onClose }: { onClose: () => void }) {
+export function MyRides({ onClose, pos }: { onClose: () => void; pos: { lat: number; lng: number } | null }) {
   const [shifts, setShifts] = useState<MyShift[]>([]);
   const [shiftId, setShiftId] = useState<number | null>(null);
   const [data, setData] = useState<MyRidesResp | null>(null);
   const [err, setErr] = useState('');
+  const [fillFor, setFillFor] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [reload, setReload] = useState(0);
+
+  async function saveDestination(id: number, d: Destination) {
+    setSaving(true);
+    try {
+      await api(`/api/driver/rides/${id}/destination`, { body: d });
+      setFillFor(null);
+      setReload((n) => n + 1);
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   useEffect(() => {
     api<MyShift[]>('/api/driver/my-shifts')
@@ -53,12 +70,13 @@ export function MyRides({ onClose }: { onClose: () => void }) {
       .catch((e) => setErr(e.message));
   }, []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reload = znova načítať po doplnení cieľa
   useEffect(() => {
     setData(null);
     api<MyRidesResp>(`/api/driver/my-rides${shiftId ? `?shiftId=${shiftId}` : ''}`)
       .then(setData)
       .catch((e) => setErr(e.message));
-  }, [shiftId]);
+  }, [shiftId, reload]);
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -151,6 +169,15 @@ export function MyRides({ onClose }: { onClose: () => void }) {
               <div className="text-sm text-soft">
                 {r.pickupAddress} → {r.dropoffAddress || 'bez cieľa'}
               </div>
+              {r.status === 'completed' && !r.dropoffAddress && (
+                <button
+                  type="button"
+                  className="btn-primary mt-2 w-full py-2 text-sm"
+                  onClick={() => setFillFor(r.id)}
+                >
+                  Doplniť cieľ
+                </button>
+              )}
               {r.status === 'completed' && (
                 <div className="mt-1.5 flex justify-between text-sm">
                   <span className="text-muted">{fmtKm(Number(r.distanceKm))} km</span>
@@ -163,6 +190,15 @@ export function MyRides({ onClose }: { onClose: () => void }) {
           ))}
         </div>
       </div>
+      {fillFor !== null && (
+        <DestinationChooser
+          mode="fill"
+          pos={pos}
+          busy={saving}
+          onConfirm={(d) => saveDestination(fillFor, d)}
+          onClose={() => setFillFor(null)}
+        />
+      )}
     </div>
   );
 }

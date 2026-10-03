@@ -369,8 +369,16 @@ export async function rideRoutes(app: FastifyInstance) {
     const price = Math.max(env.priceMin, Math.round(km * env.pricePerKm * 100) / 100);
     // jazda bez cieľa → B = miesto ukončenia (poloha z appky, inak posledná známa)
     let dest: Partial<Pick<Ride, 'dropoffAddress' | 'dropoffLat' | 'dropoffLng'>> = {};
-    if (!r.dropoffAddress) {
-      const b = (req.body ?? {}) as Record<string, unknown>;
+    const fb = (req.body ?? {}) as Record<string, unknown>;
+    if (!r.dropoffAddress && str(fb, 'dropoffAddress', false)) {
+      // vodič cieľ vybral (mapa / ručne / potvrdená GPS adresa)
+      dest = {
+        dropoffAddress: str(fb, 'dropoffAddress')!,
+        dropoffLat: num(fb, 'dropoffLat', false) ?? null,
+        dropoffLng: num(fb, 'dropoffLng', false) ?? null,
+      };
+    } else if (!r.dropoffAddress && fb.destinationLater !== true) {
+      const b = fb;
       let lat = num(b, 'lat', false) ?? null;
       let lng = num(b, 'lng', false) ?? null;
       if (lat === null || lng === null) {
@@ -392,7 +400,7 @@ export async function rideRoutes(app: FastifyInstance) {
       .set({ status: 'completed', finishedAt: new Date(), price, ...dest })
       .where(eq(rides.id, r.id));
     if ('dropoffAddress' in dest) {
-      audit('ride.destination_set', `Jazda #${r.id}: cieľ doplnený pri ukončení podľa GPS`, {
+      audit('ride.destination_set', `Jazda #${r.id}: cieľ doplnený pri ukončení`, {
         rideId: r.id,
         driverId: req.user.id,
       });
@@ -405,6 +413,31 @@ export async function rideRoutes(app: FastifyInstance) {
       { rideId: r.id, driverId: req.user.id, km: Math.round(km * 10) / 10, price, minutes: mins },
     );
     await refreshDriverAvailability(req.user.id);
+    return broadcastRide(r.id);
+  });
+
+  // Dodatočné doplnenie cieľa k vlastnej jazde, ktorá bola ukončená bez cieľa („doplním neskôr“).
+  app.post<{ Params: { id: string } }>('/api/driver/rides/:id/destination', driver, async (req) => {
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const [r] = await db
+      .select()
+      .from(rides)
+      .where(eq(rides.id, Number(req.params.id)));
+    if (!r || r.driverId !== req.user.id) throw new HttpError(404, 'Jazda neexistuje');
+    if (r.dropoffAddress) throw new HttpError(409, 'Jazda už má cieľ');
+    await db
+      .update(rides)
+      .set({
+        dropoffAddress: str(b, 'dropoffAddress')!,
+        dropoffLat: num(b, 'dropoffLat', false) ?? null,
+        dropoffLng: num(b, 'dropoffLng', false) ?? null,
+      })
+      .where(eq(rides.id, r.id));
+    audit('ride.destination_set', `Jazda #${r.id}: cieľ doplnený dodatočne – ${req.user.name}`, {
+      rideId: r.id,
+      driverId: req.user.id,
+    });
+    scheduleEstimate(r.id);
     return broadcastRide(r.id);
   });
 

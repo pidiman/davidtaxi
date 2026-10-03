@@ -4,6 +4,7 @@ import { api, fmtTime, type Incident } from '../lib/api';
 import { useSocket } from '../lib/socket';
 
 type Filter = 'open' | 'resolved' | 'all';
+type Kind = 'incident' | 'comment';
 
 const fmtWhen = (iso: string) =>
   new Date(iso).toLocaleString('sk-SK', {
@@ -14,14 +15,17 @@ const fmtWhen = (iso: string) =>
   });
 
 export function Incidents() {
+  const [kind, setKind] = useState<Kind>('incident');
   const [filter, setFilter] = useState<Filter>('open');
   const [list, setList] = useState<Incident[]>([]);
   const [err, setErr] = useState('');
   const [photo, setPhoto] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setList(await api<Incident[]>(`/api/incidents${filter === 'all' ? '' : `?status=${filter}`}`));
-  }, [filter]);
+    const p = new URLSearchParams({ kind });
+    if (kind === 'incident' && filter !== 'all') p.set('status', filter);
+    setList(await api<Incident[]>(`/api/incidents?${p}`));
+  }, [filter, kind]);
 
   useEffect(() => {
     load().catch((e) => setErr(e.message));
@@ -29,7 +33,11 @@ export function Incidents() {
 
   const upsert = (i: Incident) =>
     setList((l) => {
-      const keep = filter === 'all' || (filter === 'open' ? !i.resolvedAt : Boolean(i.resolvedAt));
+      const keep =
+        i.kind === kind &&
+        (kind === 'comment' ||
+          filter === 'all' ||
+          (filter === 'open' ? !i.resolvedAt : Boolean(i.resolvedAt)));
       const rest = l.filter((x) => x.id !== i.id);
       return keep ? [i, ...rest].sort((a, b) => b.id - a.id) : rest;
     });
@@ -64,13 +72,33 @@ export function Incidents() {
       <Header connected={connected} />
       <main className="mx-auto flex max-w-[1100px] flex-col gap-4 p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div role="tablist" className="flex gap-1.5 rounded-xl bg-panel p-1.5">
-            {tab('open', 'Otvorené')}
-            {tab('resolved', 'Vyriešené')}
-            {tab('all', 'Všetky')}
+          <div className="flex flex-wrap gap-3">
+            <div role="tablist" className="flex gap-1.5 rounded-xl bg-panel p-1.5">
+              {(['incident', 'comment'] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  role="tab"
+                  aria-selected={kind === k}
+                  onClick={() => setKind(k)}
+                  className={`rounded-lg px-4 py-2.5 font-semibold ${kind === k ? 'bg-taxi text-black' : 'text-soft hover:bg-raised'}`}
+                >
+                  {k === 'incident' ? 'Incidenty' : 'Komentáre'}
+                </button>
+              ))}
+            </div>
+            {kind === 'incident' && (
+              <div role="tablist" className="flex gap-1.5 rounded-xl bg-panel p-1.5">
+                {tab('open', 'Otvorené')}
+                {tab('resolved', 'Vyriešené')}
+                {tab('all', 'Všetky')}
+              </div>
+            )}
           </div>
           <span className="text-sm text-muted">
-            Incidenty nahlasujú vodiči z mobilnej appky (menu ☰ → Incident).
+            {kind === 'incident'
+              ? 'Incidenty nahlasujú vodiči z mobilnej appky (menu ☰ → Incident).'
+              : 'Komentáre píšu vodiči po dokončení jazdy – sú len na informáciu.'}
           </span>
         </div>
 
@@ -86,14 +114,18 @@ export function Incidents() {
 
         {list.length === 0 && (
           <div className="card text-muted">
-            {filter === 'open' ? 'Žiadne otvorené incidenty.' : 'Žiadne incidenty.'}
+            {kind === 'comment'
+              ? 'Žiadne komentáre.'
+              : filter === 'open'
+                ? 'Žiadne otvorené incidenty.'
+                : 'Žiadne incidenty.'}
           </div>
         )}
 
         {list.map((i) => (
           <article
             key={i.id}
-            className={`card flex flex-col gap-3 ${i.resolvedAt ? 'opacity-70' : 'border-l-4 border-taxi'}`}
+            className={`card flex flex-col gap-3 ${i.kind === 'comment' ? '' : i.resolvedAt ? 'opacity-70' : 'border-l-4 border-taxi'}`}
           >
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
@@ -111,7 +143,11 @@ export function Incidents() {
                   )}
                 </div>
               </div>
-              {i.resolvedAt ? (
+              {i.kind === 'comment' ? (
+                <span className="rounded-full border border-line px-2.5 py-1 text-xs text-soft">
+                  komentár k jazde
+                </span>
+              ) : i.resolvedAt ? (
                 <div className="flex items-center gap-3">
                   <span className="rounded-full bg-raised px-2.5 py-1 text-xs text-soft">
                     vyriešené {fmtWhen(i.resolvedAt)}

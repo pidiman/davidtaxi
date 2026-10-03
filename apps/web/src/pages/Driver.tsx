@@ -1,6 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { AddressInput } from '../components/AddressInput';
 import { TaxiIcon, Wordmark } from '../components/Brand';
+import { type Destination, DestinationChooser } from '../components/DestinationChooser';
 import { DriverNav, type NavPos, type NavTarget } from '../components/DriverNav';
 import { IncidentReport } from '../components/IncidentReport';
 import { IncomingRideAlert } from '../components/IncomingRideAlert';
@@ -44,6 +45,8 @@ export function Driver() {
   const [pos, setPos] = useState<NavPos | null>(null);
   const [nav, setNav] = useState<NavTarget | null>(null);
   const [incident, setIncident] = useState(false);
+  const [commentRide, setCommentRide] = useState<number | null>(null);
+  const [destFor, setDestFor] = useState<Ride | null>(null);
   const [myRides, setMyRides] = useState(false);
   const [endShift, setEndShift] = useState(false);
   const [toast, setToast] = useState('');
@@ -171,16 +174,24 @@ export function Driver() {
     }
   }
 
-  async function act(ride: Ride, action: 'accept' | 'reject' | 'arrived' | 'start' | 'finish') {
+  async function act(
+    ride: Ride,
+    action: 'accept' | 'reject' | 'arrived' | 'start' | 'finish',
+    finishBody?: Destination | { destinationLater: true },
+  ) {
+    // jazda bez cieľa: najprv sa opýtaj, kam zapísať B (GPS / mapa / ručne / neskôr)
+    if (action === 'finish' && !ride.dropoffAddress && !finishBody) {
+      setDestFor(ride);
+      return;
+    }
     setBusy(true);
     setErr('');
     try {
-      // pri ukončení pošli aj polohu – jazde bez cieľa sa podľa nej doplní adresa B
-      const p = lastPos.current;
       const res = await api<Ride | { ok: true }>(`/api/driver/rides/${ride.id}/${action}`, {
         method: 'POST',
-        body: action === 'finish' && p ? { lat: p.lat, lng: p.lng } : undefined,
+        body: action === 'finish' ? (finishBody ?? {}) : undefined,
       });
+      if (action === 'finish') setDestFor(null);
       if (action === 'reject') setRides((l) => l.filter((x) => x.id !== ride.id));
       else if ('id' in res) {
         if (res.status === 'completed') {
@@ -364,9 +375,19 @@ export function Driver() {
           <div className="text-muted">
             {fmtKm(Number(finished.distanceKm))} km · {finished.customerName}
           </div>
-          <button type="button" className="btn-ghost mt-2" onClick={() => setFinished(null)}>
-            OK
-          </button>
+          {!finished.dropoffAddress && (
+            <div className="rounded-xl bg-taxi-dim px-3 py-2 text-sm text-[#f2e3b0]">
+              Cieľ chýba – doplň ho v menu ☰ → Moje jazdy
+            </div>
+          )}
+          <div className="mt-2 flex gap-2">
+            <button type="button" className="btn-outline flex-1" onClick={() => setCommentRide(finished.id)}>
+              Komentár k jazde
+            </button>
+            <button type="button" className="btn-ghost flex-1" onClick={() => setFinished(null)}>
+              OK
+            </button>
+          </div>
         </div>
       )}
 
@@ -441,7 +462,31 @@ export function Driver() {
         />
       )}
 
-      {myRides && <MyRides onClose={() => setMyRides(false)} />}
+      {myRides && <MyRides pos={lastPos.current} onClose={() => setMyRides(false)} />}
+
+      {destFor && (
+        <DestinationChooser
+          mode="finish"
+          pos={lastPos.current}
+          busy={busy}
+          onConfirm={(d) => act(destFor, 'finish', d)}
+          onLater={() => act(destFor, 'finish', { destinationLater: true })}
+          onClose={() => setDestFor(null)}
+        />
+      )}
+
+      {commentRide !== null && (
+        <IncidentReport
+          kind="comment"
+          defaultRideId={commentRide}
+          onClose={() => setCommentRide(null)}
+          onSent={() => {
+            setCommentRide(null);
+            setToast('Komentár odoslaný');
+            setTimeout(() => setToast(''), 3500);
+          }}
+        />
+      )}
 
       {incident && (
         <IncidentReport
@@ -885,11 +930,7 @@ function RideCard({
             type="button"
             disabled={busy}
             onClick={() =>
-              confirm(
-                ride.dropoffAddress
-                  ? 'Ukončiť jazdu?'
-                  : 'Ukončiť jazdu? Cieľ sa zapíše podľa tvojej aktuálnej polohy.',
-              ) && onAct(ride, 'finish')
+              ride.dropoffAddress ? confirm('Ukončiť jazdu?') && onAct(ride, 'finish') : onAct(ride, 'finish')
             }
             className="btn-primary h-[62px] flex-1 rounded-2xl text-lg font-extrabold uppercase"
           >

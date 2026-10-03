@@ -293,6 +293,7 @@ export const fmtEstimate = (km: number | null) =>
 // ---------------- Incidenty ----------------
 export type Incident = {
   id: number;
+  kind: 'incident' | 'comment';
   description: string;
   createdAt: string;
   resolvedAt: string | null;

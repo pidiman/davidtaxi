@@ -205,6 +205,9 @@ export const auditLog = pgTable(
   (t) => [index('audit_log_at_idx').on(t.at), index('audit_log_evt_idx').on(t.evt, t.at)],
 );
 
+// incident = problém na riešenie · comment = komentár k jazde (rovno vyriešený, len na info)
+export const incidentKindEnum = pgEnum('incident_kind', ['incident', 'comment']);
+
 // ---------------- Incidenty nahlásené vodičom (napr. zašpinené auto, škoda, konflikt) ----------------
 export const incidents = pgTable(
   'incidents',
@@ -216,6 +219,7 @@ export const incidents = pgTable(
     vehicleId: integer('vehicle_id').references(() => vehicles.id, { onDelete: 'set null' }),
     shiftId: integer('shift_id').references(() => shifts.id, { onDelete: 'set null' }),
     rideId: integer('ride_id').references(() => rides.id, { onDelete: 'set null' }),
+    kind: incidentKindEnum('kind').notNull().default('incident'),
     description: text('description').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     resolvedAt: timestamp('resolved_at', { withTimezone: true }),
