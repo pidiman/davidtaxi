@@ -1,6 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AddressInput } from '../components/AddressInput';
 import { DriverDetailCard } from '../components/DriverDetailCard';
+import { DriversPanel } from '../components/DriversPanel';
 import {
   FleetMap,
   type LabelMode,
@@ -467,6 +468,22 @@ export function Dispatch() {
               Uložiť a vybrať vodiča
             </button>
           </form>
+
+          <DriversPanel
+            drivers={drivers}
+            rides={rides}
+            labelMode={labelMode}
+            selectedId={detailId}
+            onSelect={(d, ride) => {
+              setDetailId(d.id);
+              setDetailRefresh((n) => n + 1);
+              if (ride && ACTIVE.includes(ride.status)) {
+                if (trackedId !== ride.id) trackRide(ride);
+              } else if (d.lat !== null && d.lng !== null) {
+                setFocus((f) => ({ lat: d.lat!, lng: d.lng!, zoom: 15, seq: (f?.seq ?? 0) + 1 }));
+              }
+            }}
+          />
         </aside>
 
         {/* ---------- stred: mapa + aktívne jazdy ---------- */}
