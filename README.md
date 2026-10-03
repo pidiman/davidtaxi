@@ -27,67 +27,45 @@ apps/web   /dispatch, /history, /admin (dashboard)  ·  /driver (PWA)
 
 ---
 
-## Deploy na Proxmox
+## Deploy na Proxmox (Docker)
 
-### 1. Docker host (ak ešte nemáš)
-
-V Proxmoxe vytvor LXC kontajner Debian 12 s 2 vCPU, 2 GB RAM a 16 GB disku. V *Options → Features* zapni `nesting=1` a `keyctl=1`. Potom:
+Jedným príkazom z Macu. Na hoste treba SSH kľúč. Skript vygeneruje `.env` s náhodnými heslami a VAPID kľúčmi, skopíruje projekt do `/opt/davidtaxi`, buildne, spustí a urobí health check:
 
 ```bash
-apt update && apt install -y curl git
-curl -fsSL https://get.docker.com | sh
+cd ~/Projects/davidtaxi && ./deploy.sh root@192.168.1.121
 ```
 
-> Ak už máš Docker LXC (napr. `docker-webdeveloper`), použi ten.
+Na konci vypíše URL a heslo admina. Rovnaký príkaz slúži aj na aktualizáciu. `.env` sa vytvára len raz a zostáva na Macu (`chmod 600`, je v `.gitignore`).
 
-### 2. Stiahni repo a nastav `.env`
+Ručne priamo na hoste:
 
 ```bash
-cd /opt
-git clone https://github.com/pidiman/davidtaxi.git
-cd davidtaxi
-cp .env.example .env
-
-# vygeneruj tajné hodnoty (bez špeciálnych znakov, sú súčasťou DATABASE_URL)
-sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 24)/" .env
-sed -i "s/^JWT_SECRET=.*/JWT_SECRET=$(openssl rand -hex 32)/" .env
-nano .env   # nastav ADMIN_PASSWORD (min. 8 znakov), PUBLIC_URL, APP_PORT
+git clone https://github.com/pidiman/davidtaxi.git /opt/davidtaxi && cd /opt/davidtaxi
+cp .env.example .env && nano .env      # POSTGRES_PASSWORD, JWT_SECRET, ADMIN_PASSWORD, PUBLIC_URL
+docker compose build app
+docker compose run --rm --no-deps app node dist/vapid.js   # výstup vlož do .env
+docker compose up -d db app
+docker compose logs -f app             # "Vytvorený prvý admin" + "Server listening"
+curl -s localhost:8088/api/health      # {"ok":true}
 ```
 
-### 3. Build a VAPID kľúče pre push notifikácie
+Migrácie databázy sa spustia automaticky pri štarte. Prvý admin sa vytvorí z `ADMIN_USERNAME` / `ADMIN_PASSWORD`, iba ak je databáza prázdna. Port `8088` je zvolený tak, aby nekolidoval s kurierom (`8090`).
 
-```bash
-docker compose build
-docker compose run --rm --no-deps app node dist/vapid.js
-# skopíruj vypísané VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY do .env
-```
-
-### 4. Spusti
-
-```bash
-docker compose up -d
-docker compose ps                 # app aj db majú byť "healthy"
-docker compose logs -f app        # "Vytvorený prvý admin" + "Server listening"
-curl -s localhost:8088/api/health # {"ok":true}
-```
-
-Migrácie databázy sa spustia automaticky pri štarte. Prvý admin sa vytvorí z `ADMIN_USERNAME` / `ADMIN_PASSWORD`, iba ak je databáza prázdna.
-
-### 5. Nginx Proxy Manager (HTTPS)
+### Nginx Proxy Manager (HTTPS)
 
 **HTTPS je povinné.** Bez neho prehliadač nepustí PWA k GPS ani k push notifikáciám.
 
 1. DNS: pridaj `taxi.pidiman.sk` (A záznam alebo wildcard na tvoju verejnú IP).
 2. V NPM nastav *Proxy Hosts → Add*:
    - Domain: `taxi.pidiman.sk`
-   - Scheme `http`, Forward Hostname: IP Docker LXC, Port: `8088` (alebo IP z Tailscale)
+   - Scheme `http`, Forward Hostname: `192.168.1.121` (Docker host), Port: `8088`
    - ✅ **Websockets Support** – bez neho nepôjde živá mapa ani notifikácie v appke
    - ✅ Block Common Exploits
 3. V záložke SSL zvoľ Let's Encrypt, zapni Force SSL a HTTP/2.
 
 > Nedávaj pred appku Authelia forward-auth. Rozbije to PWA a API volania z mobilov. Appka má vlastné prihlásenie s rolami.
 
-### 6. Prvé nastavenie
+### Prvé nastavenie
 
 1. Otvor `https://taxi.pidiman.sk` a prihlás sa ako admin.
 2. V sekcii **Používatelia a autá** pridaj autá, potom dispečerov a vodičov (vodičovi priraď auto).
@@ -100,9 +78,7 @@ Migrácie databázy sa spustia automaticky pri štarte. Prvý admin sa vytvorí 
 ### Aktualizácia
 
 ```bash
-cd /opt/davidtaxi
-git pull
-docker compose up -d --build
+git pull && ./deploy.sh root@192.168.1.121     # z Macu
 ```
 
 ### Záloha databázy
