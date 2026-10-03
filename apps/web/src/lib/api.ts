@@ -229,3 +229,43 @@ export const fmtTime = (iso: string | null) =>
 export const telHref = (phone: string) => `tel:${phone.replace(/[^\d+]/g, '')}`;
 export const navHref = (address: string, lat?: number | null, lng?: number | null) =>
   `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(lat && lng ? `${lat},${lng}` : address)}`;
+
+/** "Peter Novák" → "PN" */
+export const initials = (name: string) =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((p) => p[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+
+export type DriverDetail = {
+  driver: Driver;
+  vehicle: {
+    id: number;
+    callsign: string;
+    plate: string;
+    model: string;
+    color: string | null;
+    year: number | null;
+    seats: number;
+    fuel: string | null;
+    stkUntil: string | null;
+    insuranceUntil: string | null;
+    photoUrl: string | null;
+  } | null;
+  shift: { id: number; startedAt: string; startKm: number } | null;
+  ride: {
+    id: number;
+    status: RideStatus;
+    source: 'dispatch' | 'street';
+    customerName: string;
+    customerPhone: string | null;
+    pickupAddress: string;
+    dropoffAddress: string;
+    distanceKm: number;
+    startedAt: string | null;
+  } | null;
+  stats: { rides: number; km: number; revenue: number };
+};

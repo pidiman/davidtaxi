@@ -1,6 +1,7 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AddressInput } from '../components/AddressInput';
-import { FleetMap } from '../components/FleetMap';
+import { DriverDetailCard } from '../components/DriverDetailCard';
+import { FleetMap, type LabelMode, type PickTarget } from '../components/FleetMap';
 import { Header } from '../components/Header';
 import {
   api,
@@ -11,6 +12,7 @@ import {
   fmtKm,
   fmtTime,
   haversineKm,
+  initials,
   type Ride,
   STATUS_LABEL,
   telHref,
@@ -22,6 +24,15 @@ const ACTIVE = ['accepted', 'arrived', 'in_progress'];
 const STATUS_ORDER: Record<DriverStatus, number> = { available: 0, busy: 1, break: 2, offline: 3 };
 
 type Config = { priceMin: number; pricePerKm: number };
+
+const LABEL_KEY = 'dt_map_label';
+function readLabelMode(): LabelMode {
+  try {
+    return localStorage.getItem(LABEL_KEY) === 'initials' ? 'initials' : 'car';
+  } catch {
+    return 'car';
+  }
+}
 
 const emptyForm = {
   customerName: '',
@@ -46,6 +57,65 @@ export function Dispatch() {
   const [cfg, setCfg] = useState<Config>({ priceMin: 3.5, pricePerKm: 1 });
   const [toast, setToast] = useState('');
   const [busy, setBusy] = useState(false);
+  const [labelMode, setLabelMode] = useState<LabelMode>(readLabelMode);
+  const [pickTarget, setPickTarget] = useState<PickTarget | null>(null);
+  const [detailId, setDetailId] = useState<number | null>(null);
+  const [detailRefresh, setDetailRefresh] = useState(0);
+  const mapRef = useRef<HTMLDivElement>(null);
+
+  function changeLabelMode(m: LabelMode) {
+    setLabelMode(m);
+    try {
+      localStorage.setItem(LABEL_KEY, m);
+    } catch {
+      /* súkromné okno */
+    }
+  }
+
+  // Esc zruší výber bodu na mape
+  useEffect(() => {
+    if (!pickTarget) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setPickTarget(null);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [pickTarget]);
+
+  function startPick(t: PickTarget) {
+    if (pickTarget === t) return setPickTarget(null);
+    setPickTarget(t);
+    // na úzkej obrazovke je mapa pod formulárom → posuň ju do zorného poľa
+    const r = mapRef.current?.getBoundingClientRect();
+    if (r && (r.top < 0 || r.bottom > window.innerHeight))
+      mapRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  async function pickPoint(lat: number, lng: number) {
+    const t = pickTarget;
+    if (!t) return;
+    setPickTarget(null);
+    const coords = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    const apply = (address: string) =>
+      setForm((f) =>
+        t === 'A'
+          ? { ...f, pickupAddress: address, pickupLat: lat, pickupLng: lng }
+          : { ...f, dropoffAddress: address, dropoffLat: lat, dropoffLng: lng },
+      );
+    apply(coords);
+    try {
+      const r = await api<{ label: string }>(`/api/geocode/reverse?lat=${lat}&lng=${lng}`);
+      // prepíš len ak medzitým dispečer nezmenil bod
+      setForm((f) => {
+        const same =
+          t === 'A'
+            ? f.pickupLat === lat && f.pickupLng === lng
+            : f.dropoffLat === lat && f.dropoffLng === lng;
+        if (!same) return f;
+        return t === 'A' ? { ...f, pickupAddress: r.label } : { ...f, dropoffAddress: r.label };
+      });
+    } catch {
+      flash('Adresu sa nepodarilo zistiť – ostali súradnice, môžeš ich prepísať');
+    }
+  }
 
   const flash = useCallback((msg: string) => {
     setToast(msg);
@@ -66,11 +136,13 @@ export function Dispatch() {
   }, [load, flash]);
 
   const connected = useSocket({
-    'ride:updated': (r: Ride) =>
+    'ride:updated': (r: Ride) => {
       setRides((list) => {
         const rest = list.filter((x) => x.id !== r.id);
         return OPEN.includes(r.status) ? [...rest, r].sort((a, b) => a.id - b.id) : rest;
-      }),
+      });
+      if (r.driverId && r.driverId === detailId) setDetailRefresh((n) => n + 1);
+    },
     'ride:distance': ({ id, distanceKm }: { id: number; distanceKm: number }) =>
       setRides((list) => list.map((r) => (r.id === id ? { ...r, distanceKm } : r))),
     'driver:location': (p: { id: number; lat: number; lng: number; accuracy: number | null; at: string }) =>
@@ -196,6 +268,9 @@ export function Dispatch() {
             </div>
             <AddressInput
               label="A · Vyzdvihnutie"
+              pinLabel="Bod A"
+              onPickMap={() => startPick('A')}
+              picking={pickTarget === 'A'}
               value={form.pickupAddress}
               onChange={(v) =>
                 setForm((f) => ({ ...f, pickupAddress: v.address, pickupLat: v.lat, pickupLng: v.lng }))
@@ -203,13 +278,16 @@ export function Dispatch() {
             />
             <AddressInput
               label="B · Cieľ"
+              pinLabel="Bod B"
+              onPickMap={() => startPick('B')}
+              picking={pickTarget === 'B'}
               value={form.dropoffAddress}
               onChange={(v) =>
                 setForm((f) => ({ ...f, dropoffAddress: v.address, dropoffLat: v.lat, dropoffLng: v.lng }))
               }
             />
             <div className="flex gap-2.5">
-              <label className="label flex-[2]">
+              <label className="label min-w-0 flex-1">
                 Čas (prázdne = hneď)
                 <input
                   className="field"
@@ -218,7 +296,7 @@ export function Dispatch() {
                   onChange={(e) => setForm({ ...form, scheduledAt: e.target.value })}
                 />
               </label>
-              <label className="label flex-1">
+              <label className="label w-20 shrink-0">
                 Osoby
                 <input
                   className="field"
@@ -291,17 +369,58 @@ export function Dispatch() {
 
         {/* ---------- stred: mapa + aktívne jazdy ---------- */}
         <section className="flex min-w-0 flex-[999_1_560px] flex-col gap-4">
-          <div className="overflow-hidden rounded-2xl bg-panel">
+          <div ref={mapRef} className="overflow-hidden rounded-2xl bg-panel">
             <div className="flex flex-wrap items-center justify-between gap-2.5 px-4 py-3.5">
-              <h2 className="h2">Mapa vozidiel</h2>
+              <div className="flex flex-wrap items-center gap-3">
+                <h2 className="h2">Mapa vozidiel</h2>
+                <fieldset className="m-0 flex rounded-lg border-0 bg-ink p-0.5 text-sm">
+                  <legend className="sr-only">Popis áut na mape</legend>
+                  {(
+                    [
+                      ['car', 'Číslo auta'],
+                      ['initials', 'Iniciály vodiča'],
+                    ] as const
+                  ).map(([m, label]) => (
+                    <button
+                      key={m}
+                      type="button"
+                      aria-pressed={labelMode === m}
+                      onClick={() => changeLabelMode(m)}
+                      className={`rounded-md px-3 py-1.5 font-semibold ${labelMode === m ? 'bg-taxi text-black' : 'text-soft hover:text-text'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </fieldset>
+              </div>
               <div className="flex flex-wrap gap-3.5 text-[13px] text-muted">
                 <Legend color="#FFC400" label="voľný" />
                 <Legend color="#F2F2F2" label="na jazde" />
                 <Legend color="#5A5A5A" label="pauza" />
-                <span>priehľadné = poloha staršia ako 2 min</span>
+                <span>priehľadné = poloha staršia ako 2 min · klik na auto = detail</span>
               </div>
             </div>
-            <FleetMap drivers={drivers} selected={selected} highlightDriverId={hoverDriver} />
+            <FleetMap
+              drivers={drivers}
+              selected={selected}
+              highlightDriverId={hoverDriver}
+              labelMode={labelMode}
+              pickTarget={pickTarget}
+              onPick={pickPoint}
+              draftA={
+                form.pickupLat !== null && form.pickupLng !== null ? [form.pickupLat, form.pickupLng] : null
+              }
+              draftB={
+                form.dropoffLat !== null && form.dropoffLng !== null
+                  ? [form.dropoffLat, form.dropoffLng]
+                  : null
+              }
+              selectedDriverId={detailId}
+              onSelectDriver={(id) => {
+                setDetailId(id);
+                setDetailRefresh((n) => n + 1);
+              }}
+            />
           </div>
 
           <div className="card">
@@ -370,87 +489,97 @@ export function Dispatch() {
           </div>
         </section>
 
-        {/* ---------- pravý stĺpec: priradenie vodiča ---------- */}
-        <aside className="card flex min-w-0 max-w-[380px] flex-[1_1_300px] flex-col gap-2.5">
-          <div>
-            <h2 className="h2">Priradiť vodiča</h2>
-            <div className="mt-0.5 text-[13px] text-muted">
-              {selected
-                ? `Pre: ${selected.customerName}${selected.pickupLat ? ' · zoradené podľa vzdialenosti k A' : ''}`
-                : 'Vyber objednávku zo zoznamu čakajúcich.'}
+        {/* ---------- pravý stĺpec: priradenie vodiča + detail vozidla ---------- */}
+        <div className="flex min-w-0 max-w-[380px] flex-[1_1_300px] flex-col gap-4">
+          <aside className="card flex flex-col gap-2.5">
+            <div>
+              <h2 className="h2">Priradiť vodiča</h2>
+              <div className="mt-0.5 text-[13px] text-muted">
+                {selected
+                  ? `Pre: ${selected.customerName}${selected.pickupLat ? ' · zoradené podľa vzdialenosti k A' : ''}`
+                  : 'Vyber objednávku zo zoznamu čakajúcich.'}
+              </div>
             </div>
-          </div>
 
-          {selected && (selected.status === 'new' || selected.status === 'assigned') && (
-            <>
-              {candidates
-                .filter((d) => d.status !== 'offline')
-                .map((d, i) => {
-                  const isCurrent = selected.driverId === d.id;
-                  const top = i === 0 && d.status === 'available';
-                  return (
-                    // biome-ignore lint/a11y/noStaticElementInteractions: hover len zvýrazní trasu na mape
-                    <div
-                      key={d.id}
-                      onMouseEnter={() => setHoverDriver(d.id)}
-                      onMouseLeave={() => setHoverDriver(null)}
-                      className={`flex flex-col gap-2.5 rounded-xl p-3 ${top || isCurrent ? 'border-2 border-taxi' : 'border border-line'} ${d.status === 'break' ? 'opacity-75' : ''}`}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <div
-                          className={`flex h-10 w-10 items-center justify-center rounded-full font-extrabold ${
-                            d.status === 'available'
-                              ? 'bg-taxi text-black'
-                              : d.status === 'busy'
-                                ? 'bg-text text-black'
-                                : 'bg-[#5a5a5a]'
-                          }`}
-                        >
-                          {d.vehicleCallsign ?? '?'}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="font-bold">{d.name}</div>
-                          <div className="truncate text-[13px] text-muted">
-                            {d.vehicleModel ? `${d.vehicleModel} · ${d.vehiclePlate}` : 'bez auta'}
-                          </div>
-                        </div>
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-xs ${d.status === 'available' ? 'bg-taxi font-bold text-black' : 'bg-raised text-soft'}`}
-                        >
-                          {DRIVER_LABEL[d.status]}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-2.5">
-                        <span className="text-sm text-soft">
-                          {d.dist !== null ? `${fmtKm(d.dist)} km vzdušne` : 'poloha neznáma'}
-                        </span>
-                        {isCurrent ? (
-                          <span className="text-sm font-semibold text-taxi">poslané, čaká…</span>
-                        ) : (
-                          <button
-                            type="button"
-                            className={top ? 'btn-primary' : 'btn-outline'}
-                            onClick={() => assign(selected.id, d.id)}
+            {selected && (selected.status === 'new' || selected.status === 'assigned') && (
+              <>
+                {candidates
+                  .filter((d) => d.status !== 'offline')
+                  .map((d, i) => {
+                    const isCurrent = selected.driverId === d.id;
+                    const top = i === 0 && d.status === 'available';
+                    return (
+                      // biome-ignore lint/a11y/noStaticElementInteractions: hover len zvýrazní trasu na mape
+                      <div
+                        key={d.id}
+                        onMouseEnter={() => setHoverDriver(d.id)}
+                        onMouseLeave={() => setHoverDriver(null)}
+                        className={`flex flex-col gap-2.5 rounded-xl p-3 ${top || isCurrent ? 'border-2 border-taxi' : 'border border-line'} ${d.status === 'break' ? 'opacity-75' : ''}`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div
+                            className={`flex h-10 w-10 items-center justify-center rounded-full font-extrabold ${
+                              d.status === 'available'
+                                ? 'bg-taxi text-black'
+                                : d.status === 'busy'
+                                  ? 'bg-text text-black'
+                                  : 'bg-[#5a5a5a]'
+                            }`}
                           >
-                            {d.status === 'available' ? 'Poslať jazdu' : 'Poslať aj tak'}
-                          </button>
-                        )}
+                            {labelMode === 'initials' ? initials(d.name) : (d.vehicleCallsign ?? '?')}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="font-bold">{d.name}</div>
+                            <div className="truncate text-[13px] text-muted">
+                              {d.vehicleModel ? `${d.vehicleModel} · ${d.vehiclePlate}` : 'bez auta'}
+                            </div>
+                          </div>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs ${d.status === 'available' ? 'bg-taxi font-bold text-black' : 'bg-raised text-soft'}`}
+                          >
+                            {DRIVER_LABEL[d.status]}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2.5">
+                          <span className="text-sm text-soft">
+                            {d.dist !== null ? `${fmtKm(d.dist)} km vzdušne` : 'poloha neznáma'}
+                          </span>
+                          {isCurrent ? (
+                            <span className="text-sm font-semibold text-taxi">poslané, čaká…</span>
+                          ) : (
+                            <button
+                              type="button"
+                              className={top ? 'btn-primary' : 'btn-outline'}
+                              onClick={() => assign(selected.id, d.id)}
+                            >
+                              {d.status === 'available' ? 'Poslať jazdu' : 'Poslať aj tak'}
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
-              {candidates.every((d) => d.status === 'offline') && (
-                <p className="m-0 text-sm text-muted">Žiadny vodič nie je online.</p>
-              )}
-              <button type="button" className="btn-ghost mt-1 text-sm" onClick={() => cancel(selected)}>
-                Zrušiť objednávku
-              </button>
-            </>
+                    );
+                  })}
+                {candidates.every((d) => d.status === 'offline') && (
+                  <p className="m-0 text-sm text-muted">Žiadny vodič nie je online.</p>
+                )}
+                <button type="button" className="btn-ghost mt-1 text-sm" onClick={() => cancel(selected)}>
+                  Zrušiť objednávku
+                </button>
+              </>
+            )}
+            <div className="mt-1 rounded-[10px] bg-ink p-3 text-[13px] leading-snug text-muted">
+              Po odoslaní dostane vodič push notifikáciu. Ak jazdu odmietne, vráti sa medzi čakajúce.
+            </div>
+          </aside>
+          {detailId !== null && (
+            <DriverDetailCard
+              driverId={detailId}
+              live={drivers.find((x) => x.id === detailId)}
+              refreshKey={detailRefresh}
+              onClose={() => setDetailId(null)}
+            />
           )}
-          <div className="mt-1 rounded-[10px] bg-ink p-3 text-[13px] leading-snug text-muted">
-            Po odoslaní dostane vodič push notifikáciu. Ak jazdu odmietne, vráti sa medzi čakajúce.
-          </div>
-        </aside>
+        </div>
       </main>
 
       {toast && (

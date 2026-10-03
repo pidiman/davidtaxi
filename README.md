@@ -12,6 +12,10 @@ Dispečing pre taxislužbu: **admin / dispečer dashboard** + **PWA pre vodičov
   - Pod rozpisom je kniha odjazdených smien: počiatočný a konečný stav km, najazdené km, km jázd z GPS, počet jázd a tržba.
   - Dispečer v knihe smien opraví km alebo ukončí zabudnutú smenu.
 - Dispečer (aj admin) prijíma objednávky, vidí autá na mape naživo a posiela jazdy vodičom.
+- **Dashboard:**
+  - prepínač *Číslo auta / Iniciály vodiča* (popis áut na mape aj v zozname vodičov, appka si ho pamätá),
+  - body A a B objednávky sa dajú zadať aj kliknutím na mapu: ikona špendlíka na konci poľa, potom klik do mapy, adresa sa doplní sama, Esc výber zruší,
+  - klik na auto v mape zobrazí pod *Priradiť vodiča* detail auta (fotka, údaje) a vodiča (telefón, smena, štart km, jazdy a tržba v smene, aktuálna jazda).
 - Vodič dostane push notifikáciu, vidí trasu A → B a meno a telefón zákazníka. Jazdu prijme alebo odmietne.
 - **Nová jazda sa nedá prehliadnuť:**
   - cez celú obrazovku sa zobrazí blikajúce okno (1× za sekundu) a appka zvoní a vibruje v slučke, kým vodič jazdu neprijme alebo neodmietne,

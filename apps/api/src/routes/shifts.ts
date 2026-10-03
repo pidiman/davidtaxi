@@ -302,6 +302,71 @@ export async function shiftRoutes(app: FastifyInstance) {
     return view;
   });
 
+  // ================= Dispečing: detail vodiča a auta (klik na auto v mape) =================
+  app.get<{ Params: { id: string } }>('/api/drivers/:id/detail', dispatch, async (req) => {
+    const id = Number(req.params.id);
+    const driver = await driverBrief(id);
+    if (!driver) throw new HttpError(404, 'Vodič neexistuje');
+    const open = await openShiftOf(id);
+    const vehicleId = open?.vehicleId ?? driver.vehicleId;
+    const [v] = vehicleId
+      ? await db
+          .select({
+            id: vehicles.id,
+            callsign: vehicles.callsign,
+            plate: vehicles.plate,
+            model: vehicles.model,
+            color: vehicles.color,
+            year: vehicles.year,
+            seats: vehicles.seats,
+            fuel: vehicles.fuel,
+            stkUntil: vehicles.stkUntil,
+            insuranceUntil: vehicles.insuranceUntil,
+            photoUpdatedAt: vehicles.photoUpdatedAt,
+          })
+          .from(vehicles)
+          .where(eq(vehicles.id, vehicleId))
+      : [];
+    const [ride] = await db
+      .select({
+        id: rides.id,
+        status: rides.status,
+        source: rides.source,
+        customerName: rides.customerName,
+        customerPhone: rides.customerPhone,
+        pickupAddress: rides.pickupAddress,
+        dropoffAddress: rides.dropoffAddress,
+        distanceKm: rides.distanceKm,
+        startedAt: rides.startedAt,
+      })
+      .from(rides)
+      .where(and(eq(rides.driverId, id), inArray(rides.status, ['assigned', ...ACTIVE_RIDE])))
+      .orderBy(desc(rides.assignedAt))
+      .limit(1);
+    let stats = { rides: 0, km: 0, revenue: 0 };
+    if (open) {
+      const [agg] = await db
+        .select({
+          n: sql<number>`count(*)::int`,
+          km: sql<number>`coalesce(sum(${rides.distanceKm}), 0)::float`,
+          revenue: sql<number>`coalesce(sum(${rides.price}), 0)::float`,
+        })
+        .from(rides)
+        .where(
+          and(eq(rides.driverId, id), eq(rides.status, 'completed'), gte(rides.startedAt, open.startedAt)),
+        );
+      stats = { rides: agg.n, km: agg.km, revenue: agg.revenue };
+    }
+    const { photoUpdatedAt, ...vehicle } = v ?? ({} as Record<string, never>);
+    return {
+      driver,
+      vehicle: v ? { ...vehicle, photoUrl: photoUrl({ id: v.id, photoUpdatedAt }) } : null,
+      shift: open ? { id: open.id, startedAt: open.startedAt, startKm: open.startKm } : null,
+      ride: ride ?? null,
+      stats,
+    };
+  });
+
   // ================= Dispečing: kniha smien =================
   app.get<{ Querystring: { from?: string; to?: string } }>('/api/shifts', dispatch, async (req) => {
     const from = req.query.from ? new Date(req.query.from) : new Date(Date.now() - 7 * 86400_000);
