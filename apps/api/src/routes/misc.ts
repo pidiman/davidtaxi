@@ -22,24 +22,46 @@ export async function miscRoutes(app: FastifyInstance) {
   // Geokódovanie adries cez OSM Nominatim (dodrž usage policy: max 1 req/s, User-Agent).
   // Pre vyššiu záťaž si môžeš self-hostnúť Nominatim/Photon a zmeniť GEOCODER_URL.
   const geocoderUrl = process.env.GEOCODER_URL ?? 'https://nominatim.openstreetmap.org/search';
-  app.get<{ Querystring: { q?: string } }>(
-    '/api/geocode',
-    { preHandler: requireRole(...DISPATCH) },
-    async (req) => {
-      const q = (req.query.q ?? '').trim();
-      if (q.length < 3) return [];
-      const url = new URL(geocoderUrl);
-      url.searchParams.set('q', q);
-      url.searchParams.set('format', 'jsonv2');
-      url.searchParams.set('limit', '5');
-      url.searchParams.set('countrycodes', 'sk,at,cz,hu');
-      url.searchParams.set('accept-language', 'sk');
-      const res = await fetch(url, { headers: { 'User-Agent': `davidtaxi (${env.publicUrl})` } });
-      if (!res.ok) throw new HttpError(502, 'Geokódovanie zlyhalo');
-      const data = (await res.json()) as { display_name: string; lat: string; lon: string }[];
-      return data.map((d) => ({ label: d.display_name, lat: Number(d.lat), lng: Number(d.lon) }));
-    },
-  );
+  const geoAccess = { preHandler: requireRole(...DISPATCH, 'driver') };
+
+  // Súradnice → krátka adresa (vodič: bod A podľa aktuálnej polohy)
+  app.get<{ Querystring: { lat?: string; lng?: string } }>('/api/geocode/reverse', geoAccess, async (req) => {
+    const lat = Number(req.query.lat);
+    const lng = Number(req.query.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw new HttpError(400, 'Neplatné súradnice');
+    const url = new URL(geocoderUrl.replace(/\/search\/?$/, '/reverse'));
+    url.searchParams.set('lat', String(lat));
+    url.searchParams.set('lon', String(lng));
+    url.searchParams.set('format', 'jsonv2');
+    url.searchParams.set('zoom', '18');
+    url.searchParams.set('accept-language', 'sk');
+    const res = await fetch(url, { headers: { 'User-Agent': `davidtaxi (${env.publicUrl})` } });
+    if (!res.ok) throw new HttpError(502, 'Geokódovanie zlyhalo');
+    const d = (await res.json()) as { display_name?: string; address?: Record<string, string> };
+    const a = d.address ?? {};
+    const street = [a.road ?? a.pedestrian ?? a.square ?? a.amenity, a.house_number]
+      .filter(Boolean)
+      .join(' ');
+    const city = a.city ?? a.town ?? a.village ?? a.municipality ?? a.suburb;
+    const label =
+      [street, city].filter(Boolean).join(', ') || d.display_name || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    return { label, lat, lng };
+  });
+
+  app.get<{ Querystring: { q?: string } }>('/api/geocode', geoAccess, async (req) => {
+    const q = (req.query.q ?? '').trim();
+    if (q.length < 3) return [];
+    const url = new URL(geocoderUrl);
+    url.searchParams.set('q', q);
+    url.searchParams.set('format', 'jsonv2');
+    url.searchParams.set('limit', '5');
+    url.searchParams.set('countrycodes', 'sk,at,cz,hu');
+    url.searchParams.set('accept-language', 'sk');
+    const res = await fetch(url, { headers: { 'User-Agent': `davidtaxi (${env.publicUrl})` } });
+    if (!res.ok) throw new HttpError(502, 'Geokódovanie zlyhalo');
+    const data = (await res.json()) as { display_name: string; lat: string; lon: string }[];
+    return data.map((d) => ({ label: d.display_name, lat: Number(d.lat), lng: Number(d.lon) }));
+  });
 
   app.post(
     '/api/push/subscribe',

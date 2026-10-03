@@ -178,6 +178,49 @@ export async function rideRoutes(app: FastifyInstance) {
     return driverView(req.user.id);
   });
 
+  // Vodič zobral zákazníka priamo na ulici: jazda sa hneď spustí (in_progress), auto je obsadené.
+  app.post('/api/driver/rides/street', driver, async (req) => {
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const busy = await db
+      .select({ id: rides.id })
+      .from(rides)
+      .where(and(eq(rides.driverId, req.user.id), eq(rides.status, 'in_progress')));
+    if (busy.length) throw new HttpError(409, 'Najprv ukonči prebiehajúcu jazdu');
+    const [me] = await db.select().from(users).where(eq(users.id, req.user.id));
+    const now = new Date();
+    const [r] = await db
+      .insert(rides)
+      .values({
+        source: 'street',
+        status: 'in_progress',
+        customerName: str(b, 'customerName', false) ?? 'Zákazník z ulice',
+        customerPhone: str(b, 'customerPhone', false) ?? null,
+        pickupAddress: str(b, 'pickupAddress')!,
+        pickupLat: num(b, 'pickupLat', false) ?? null,
+        pickupLng: num(b, 'pickupLng', false) ?? null,
+        dropoffAddress: str(b, 'dropoffAddress')!,
+        dropoffLat: num(b, 'dropoffLat', false) ?? null,
+        dropoffLng: num(b, 'dropoffLng', false) ?? null,
+        passengers: num(b, 'passengers', false) ?? 1,
+        note: str(b, 'note', false) ?? null,
+        driverId: req.user.id,
+        vehicleId: me.vehicleId,
+        createdById: req.user.id,
+        assignedAt: now,
+        acceptedAt: now,
+        startedAt: now,
+      })
+      .returning();
+    await setDriverStatus(req.user.id, 'busy');
+    const view = await broadcastRide(r.id);
+    emitDispatch('ride:street', {
+      id: r.id,
+      driverName: req.user.name,
+      callsign: view?.vehicleCallsign ?? null,
+    });
+    return view;
+  });
+
   app.post<{ Params: { id: string } }>('/api/driver/rides/:id/accept', driver, async (req) => {
     const r = await ownRide(Number(req.params.id), req.user.id, ['assigned']);
     await db.update(rides).set({ status: 'accepted', acceptedAt: new Date() }).where(eq(rides.id, r.id));

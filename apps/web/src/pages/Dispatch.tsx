@@ -85,6 +85,10 @@ export function Dispatch() {
       ),
     'ride:rejected': ({ driverName }: { driverName: string }) =>
       flash(`${driverName} odmietol jazdu – vyber iného vodiča`),
+    'ride:street': ({ driverName, callsign }: { driverName: string; callsign: string | null }) =>
+      flash(
+        `${callsign ? `Auto ${callsign} · ` : ''}${driverName} zobral zákazníka z ulice – auto je obsadené`,
+      ),
   });
 
   // reconnect = načítaj znova, nech nič neušlo
@@ -329,9 +333,11 @@ export function Dispatch() {
                       <td className="px-2.5 py-2.5">{r.driverName}</td>
                       <td className="px-2.5 py-2.5">
                         {r.customerName}
-                        <a className="ml-2 text-xs" href={telHref(r.customerPhone)}>
-                          {r.customerPhone}
-                        </a>
+                        {r.customerPhone && (
+                          <a className="ml-2 text-xs" href={telHref(r.customerPhone)}>
+                            {r.customerPhone}
+                          </a>
+                        )}
                       </td>
                       <td className="px-2.5 py-2.5 text-soft">
                         {r.pickupAddress} → {r.dropoffAddress}
@@ -342,6 +348,7 @@ export function Dispatch() {
                         >
                           {STATUS_LABEL[r.status]}
                         </span>
+                        {r.source === 'street' && <StreetBadge />}
                       </td>
                       <td className="px-2.5 py-2.5 text-right font-bold tabular-nums">
                         {fmtKm(Number(r.distanceKm))}
@@ -469,6 +476,17 @@ function Legend({ color, label }: { color: string; label: string }) {
     <span className="flex items-center gap-1.5">
       <span className="h-2.5 w-2.5 rounded-full" style={{ background: color }} />
       {label}
+    </span>
+  );
+}
+
+export function StreetBadge() {
+  return (
+    <span
+      title="Vodič zobral zákazníka priamo na ulici"
+      className="ml-1.5 rounded-full border border-taxi/60 px-2 py-0.5 text-xs whitespace-nowrap text-taxi"
+    >
+      z ulice
     </span>
   );
 }

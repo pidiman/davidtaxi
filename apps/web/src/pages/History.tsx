@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Header } from '../components/Header';
 import { api, fmtEur, fmtKm, type Ride, STATUS_LABEL } from '../lib/api';
+import { StreetBadge } from './Dispatch';
 
 export function History() {
   const [rides, setRides] = useState<Ride[]>([]);
@@ -57,7 +58,10 @@ export function History() {
                     {r.driverName ?? '–'}{' '}
                     {r.vehicleCallsign && <span className="text-muted">· {r.vehicleCallsign}</span>}
                   </td>
-                  <td className="px-2.5 py-2.5">{STATUS_LABEL[r.status]}</td>
+                  <td className="px-2.5 py-2.5">
+                    {STATUS_LABEL[r.status]}
+                    {r.source === 'street' && <StreetBadge />}
+                  </td>
                   <td className="px-2.5 py-2.5 text-right tabular-nums">{fmtKm(Number(r.distanceKm))}</td>
                   <td className="px-2.5 py-2.5 text-right font-bold tabular-nums">
                     {r.price !== null ? fmtEur(Number(r.price)) : '–'}

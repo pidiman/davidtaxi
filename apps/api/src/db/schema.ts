@@ -23,6 +23,9 @@ export const rideStatusEnum = pgEnum('ride_status', [
   'cancelled',
 ]);
 
+// odkiaľ jazda prišla: dispečing (telefonát) alebo vodič zobral zákazníka priamo na ulici
+export const rideSourceEnum = pgEnum('ride_source', ['dispatch', 'street']);
+
 export const vehicles = pgTable('vehicles', {
   id: serial('id').primaryKey(),
   callsign: text('callsign').notNull().unique(), // číslo auta, napr. "07"
@@ -54,8 +57,9 @@ export const rides = pgTable(
   {
     id: serial('id').primaryKey(),
     status: rideStatusEnum('status').notNull().default('new'),
+    source: rideSourceEnum('source').notNull().default('dispatch'),
     customerName: text('customer_name').notNull(),
-    customerPhone: text('customer_phone').notNull(),
+    customerPhone: text('customer_phone'), // pri jazde z ulice nemusí byť
     pickupAddress: text('pickup_address').notNull(),
     pickupLat: doublePrecision('pickup_lat'),
     pickupLng: doublePrecision('pickup_lng'),

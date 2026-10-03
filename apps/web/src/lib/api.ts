@@ -41,7 +41,8 @@ export type Ride = {
   id: number;
   status: RideStatus;
   customerName: string;
-  customerPhone: string;
+  customerPhone: string | null;
+  source: 'dispatch' | 'street';
   pickupAddress: string;
   pickupLat: number | null;
   pickupLng: number | null;

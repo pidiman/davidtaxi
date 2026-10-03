@@ -8,6 +8,13 @@
       "when": 1790984991509,
       "tag": "0000_wise_sage",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790988810702,
+      "tag": "0001_careful_solo",
+      "breakpoints": true
     }
   ]
 }

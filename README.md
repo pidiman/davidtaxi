@@ -5,6 +5,7 @@ Dispečing pre taxislužbu: **admin / dispečer dashboard** + **PWA pre vodičov
 - Admin vytvára dispečerov, vodičov a autá.
 - Dispečer (aj admin) prijíma objednávky, vidí autá na mape naživo a posiela jazdy vodičom.
 - Vodič dostane push notifikáciu, vidí trasu A → B a meno a telefón zákazníka. Jazdu prijme alebo odmietne.
+- **Zákazník z ulice:** vodič v appke klikne *Zobrať zákazníka z ulice*. Bod A sa predvyplní adresou podľa GPS (dá sa prepísať), bod B zadá s našepkávaním. Jazda sa hneď spustí, dispečing dostane upozornenie a auto sa zobrazí ako obsadené (v tabuľkách so štítkom *z ulice*).
 - PWA posiela polohu každých 10 s (počas jazdy každých 5 s) a počíta km jazdy z GPS. Cena = max(minimálne jazdné, km × sadzba).
 
 | Vrstva | Technológia |
@@ -24,6 +25,7 @@ apps/web   /dispatch, /history, /admin (dashboard)  ·  /driver (PWA)
 
 - Ak vodič jazdu odmietne, vráti sa do stavu `new`.
 - Dispečer môže jazdu kedykoľvek zrušiť (`cancelled`).
+- Jazda z ulice (`source = street`) vzniká rovno v stave `in_progress`.
 
 ---
 

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { AddressInput } from '../components/AddressInput';
 import { TaxiIcon, Wordmark } from '../components/Brand';
 import {
   api,
@@ -14,6 +15,8 @@ import {
 import { useAuth } from '../lib/auth';
 import { enablePush, keepScreenOn, type PushState, pushState, registerSW } from '../lib/pwa';
 import { useSocket } from '../lib/socket';
+
+type Pos = { lat: number; lng: number; accuracy: number };
 
 const PRIORITY: Record<string, number> = { in_progress: 0, arrived: 1, accepted: 2, assigned: 3 };
 const SEND_EVERY_MS = 10_000;
@@ -45,7 +48,9 @@ export function Driver() {
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [street, setStreet] = useState(false);
   const lastSent = useRef(0);
+  const lastPos = useRef<Pos | null>(null);
 
   const load = useCallback(async () => {
     const [m, r] = await Promise.all([api<DriverT>('/api/driver/me'), api<Ride[]>('/api/driver/rides')]);
@@ -91,6 +96,11 @@ export function Driver() {
     const release = keepScreenOn();
     const watch = navigator.geolocation.watchPosition(
       (pos) => {
+        lastPos.current = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+        };
         const interval = inProgress ? SEND_EVERY_RIDE_MS : SEND_EVERY_MS;
         setGps((g) => ({ accuracy: pos.coords.accuracy, sentAt: g?.sentAt ?? null }));
         if (Date.now() - lastSent.current < interval) return;
@@ -220,7 +230,32 @@ export function Driver() {
         </button>
       )}
 
-      {finished && !current && (
+      {online && !inProgress && !street && (
+        <button
+          type="button"
+          onClick={() => {
+            setFinished(null);
+            setStreet(true);
+          }}
+          className="btn-outline h-14 rounded-2xl text-base font-bold uppercase tracking-wide"
+        >
+          + Zobrať zákazníka z ulice
+        </button>
+      )}
+
+      {street && (
+        <StreetRideForm
+          lastPos={lastPos.current}
+          onCancel={() => setStreet(false)}
+          onCreated={(r) => {
+            setRides((l) => [...l.filter((x) => x.id !== r.id), r]);
+            setMe((m) => (m ? { ...m, status: 'busy' } : m));
+            setStreet(false);
+          }}
+        />
+      )}
+
+      {finished && !current && !street && (
         <div className="card flex flex-col gap-2 border-2 border-taxi text-center">
           <div className="text-sm uppercase tracking-[2px] text-taxi">Jazda dokončená</div>
           <div className="font-display text-5xl font-extrabold">{fmtEur(Number(finished.price ?? 0))}</div>
@@ -233,7 +268,7 @@ export function Driver() {
         </div>
       )}
 
-      {current ? (
+      {street ? null : current ? (
         <RideCard ride={current} now={now} busy={busy} onAct={act} />
       ) : (
         !finished && (
@@ -394,27 +429,31 @@ function RideCard({
       <div className="flex items-center gap-3 rounded-[14px] bg-ink p-3.5">
         <div className="min-w-0 flex-1">
           <div className="font-bold">{ride.customerName}</div>
-          <div className="text-sm text-soft">{ride.customerPhone}</div>
+          <div className="text-sm text-soft">
+            {ride.customerPhone ?? (ride.source === 'street' ? 'zákazník z ulice' : '')}
+          </div>
         </div>
-        <a
-          href={telHref(ride.customerPhone)}
-          aria-label="Zavolať zákazníkovi"
-          className="flex h-12 w-12 items-center justify-center rounded-full bg-taxi"
-        >
-          <svg
-            width="22"
-            height="22"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="#000"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
+        {ride.customerPhone && (
+          <a
+            href={telHref(ride.customerPhone)}
+            aria-label="Zavolať zákazníkovi"
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-taxi"
           >
-            <path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z" />
-          </svg>
-        </a>
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#000"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z" />
+            </svg>
+          </a>
+        )}
       </div>
 
       {ride.note && (
@@ -517,5 +556,150 @@ function AddressRow({
         </a>
       )}
     </div>
+  );
+}
+
+function currentPosition(): Promise<Pos> {
+  return new Promise((resolve, reject) =>
+    navigator.geolocation.getCurrentPosition(
+      (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }),
+      (e) => reject(new Error(e.code === 1 ? 'Povoľ prístup k polohe' : 'Polohu sa nepodarilo zistiť')),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 },
+    ),
+  );
+}
+
+type Place = { address: string; lat: number | null; lng: number | null };
+
+/** Jazda z ulice: bod A = aktuálna poloha (dá sa prepísať), bod B zadá vodič. Po štarte sa hneď počítajú km. */
+function StreetRideForm({
+  lastPos,
+  onCancel,
+  onCreated,
+}: {
+  lastPos: Pos | null;
+  onCancel: () => void;
+  onCreated: (r: Ride) => void;
+}) {
+  const [pickup, setPickup] = useState<Place>({ address: '', lat: null, lng: null });
+  const [dropoff, setDropoff] = useState<Place>({ address: '', lat: null, lng: null });
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [passengers, setPassengers] = useState(1);
+  const [locating, setLocating] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const fillFromGps = useCallback(async (known: Pos | null) => {
+    setLocating(true);
+    setError('');
+    try {
+      const pos = known && known.accuracy <= 100 ? known : await currentPosition();
+      setPickup({ address: `${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}`, lat: pos.lat, lng: pos.lng });
+      const r = await api<{ label: string }>(`/api/geocode/reverse?lat=${pos.lat}&lng=${pos.lng}`);
+      setPickup({ address: r.label, lat: pos.lat, lng: pos.lng });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLocating(false);
+    }
+  }, []);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: poloha sa načíta len pri otvorení formulára
+  useEffect(() => {
+    fillFromGps(lastPos);
+  }, []);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const ride = await api<Ride>('/api/driver/rides/street', {
+        body: {
+          pickupAddress: pickup.address,
+          pickupLat: pickup.lat ?? undefined,
+          pickupLng: pickup.lng ?? undefined,
+          dropoffAddress: dropoff.address,
+          dropoffLat: dropoff.lat ?? undefined,
+          dropoffLng: dropoff.lng ?? undefined,
+          customerName: name || undefined,
+          customerPhone: phone || undefined,
+          passengers,
+        },
+      });
+      onCreated(ride);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form
+      onSubmit={submit}
+      className="flex flex-1 flex-col gap-3.5 rounded-[22px] border-2 border-taxi bg-panel p-5"
+    >
+      <div className="text-[13px] font-bold uppercase tracking-[2px] text-taxi">Zákazník z ulice</div>
+
+      <div className="flex flex-col gap-1.5">
+        <AddressInput
+          label="A · Nástup"
+          value={locating && !pickup.address ? 'Zisťujem polohu…' : pickup.address}
+          onChange={setPickup}
+        />
+        <button
+          type="button"
+          className="self-start text-sm text-taxi"
+          disabled={locating}
+          onClick={() => fillFromGps(null)}
+        >
+          {locating ? 'Zisťujem polohu…' : '⌖ Použiť aktuálnu polohu'}
+        </button>
+      </div>
+
+      <AddressInput label="B · Cieľ" value={dropoff.address} onChange={setDropoff} />
+
+      <div className="flex gap-2.5">
+        <label className="label flex-[2]">
+          Meno (nepovinné)
+          <input className="field" value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <label className="label flex-1">
+          Osoby
+          <input
+            className="field"
+            type="number"
+            min={1}
+            max={8}
+            value={passengers}
+            onChange={(e) => setPassengers(Number(e.target.value))}
+          />
+        </label>
+      </div>
+      <label className="label">
+        Telefón (nepovinné)
+        <input className="field" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
+      </label>
+
+      {error && <div className="rounded-lg bg-red-950/70 px-3 py-2 text-sm text-red-100">{error}</div>}
+
+      <div className="mt-auto flex gap-2.5 pt-1">
+        <button type="button" onClick={onCancel} className="btn-ghost h-[60px] flex-1 rounded-2xl text-base">
+          Zrušiť
+        </button>
+        <button
+          type="submit"
+          disabled={busy || locating || !pickup.address || !dropoff.address}
+          className="btn-primary h-[60px] flex-[2] rounded-2xl text-lg font-extrabold uppercase"
+        >
+          Štart jazdy
+        </button>
+      </div>
+      <p className="m-0 text-center text-xs text-muted">
+        Dispečing uvidí jazdu a auto bude označené ako obsadené.
+      </p>
+    </form>
   );
 }
