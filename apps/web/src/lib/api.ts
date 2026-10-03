@@ -76,7 +76,10 @@ export type Shift = {
   rideCount?: number;
   gpsKm?: number;
   revenue?: number;
+  /** len pre vodiča (/api/driver/shift): súhrn jázd v smene */
+  stats?: ShiftRideStats | null;
 };
+export type ShiftRideStats = { rides: number; cancelled: number; km: number; revenue: number };
 
 export type Schedule = {
   id: number;

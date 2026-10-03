@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, getTableColumns, inArray, lt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, gte, ilike, inArray, lt, or, type SQL, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { DISPATCH, requireRole } from '../auth.js';
 import { db } from '../db/index.js';
@@ -87,12 +87,49 @@ export async function rideRoutes(app: FastifyInstance) {
   const driver = { preHandler: requireRole('driver') };
 
   // ================= Dispečing =================
-  app.get<{ Querystring: { scope?: string } }>('/api/rides', dispatch, async (req) => {
-    if (req.query.scope === 'history') {
+  type HistoryQuery = {
+    scope?: string;
+    from?: string;
+    to?: string;
+    driverId?: string;
+    vehicleId?: string;
+    status?: string;
+    source?: string;
+    q?: string;
+  };
+  app.get<{ Querystring: HistoryQuery }>('/api/rides', dispatch, async (req) => {
+    const qs = req.query;
+    if (qs.scope === 'history') {
+      // filtre histórie: obdobie (podľa vytvorenia), vodič, auto, stav, zdroj, text
+      const w: SQL[] = [
+        qs.status === 'completed' || qs.status === 'cancelled'
+          ? eq(rides.status, qs.status)
+          : inArray(rides.status, ['completed', 'cancelled']),
+      ];
+      const from = qs.from ? new Date(qs.from) : null;
+      const to = qs.to ? new Date(qs.to) : null;
+      if (from && !Number.isNaN(from.getTime())) w.push(gte(rides.createdAt, from));
+      if (to && !Number.isNaN(to.getTime())) w.push(lt(rides.createdAt, to));
+      if (Number(qs.driverId)) w.push(eq(rides.driverId, Number(qs.driverId)));
+      if (Number(qs.vehicleId)) w.push(eq(rides.vehicleId, Number(qs.vehicleId)));
+      if (qs.source === 'dispatch' || qs.source === 'street') w.push(eq(rides.source, qs.source));
+      const q = qs.q?.trim();
+      if (q) {
+        const like = `%${q}%`;
+        w.push(
+          or(
+            ilike(rides.customerName, like),
+            ilike(rides.customerPhone, like),
+            ilike(rides.pickupAddress, like),
+            ilike(rides.dropoffAddress, like),
+            ...(/^#?\d+$/.test(q) ? [eq(rides.id, Number(q.replace('#', '')))] : []),
+          )!,
+        );
+      }
       return rideQuery()
-        .where(inArray(rides.status, ['completed', 'cancelled']))
+        .where(and(...w))
         .orderBy(desc(rides.createdAt))
-        .limit(200);
+        .limit(1000);
     }
     return rideQuery().where(inArray(rides.status, OPEN)).orderBy(asc(rides.createdAt));
   });

@@ -1,11 +1,12 @@
 import { randomBytes } from 'node:crypto';
-import { and, desc, eq, gte, inArray, isNotNull, isNull, lte, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { DISPATCH, requireRole } from '../auth.js';
 import { db } from '../db/index.js';
 import { incidentPhotos, incidents, rides, shifts, users, vehicles } from '../db/schema.js';
 import { audit, byFields, who } from '../log.js';
 import { emitDispatch } from '../realtime.js';
+import { shiftRideCols, shiftRideWhere } from '../shiftRides.js';
 import { HttpError, num, str } from '../util.js';
 
 const MAX_PHOTOS = 6;
@@ -31,27 +32,10 @@ async function contextShift(driverId: number) {
 }
 
 async function shiftRides(driverId: number, shift: { startedAt: Date; endedAt: Date | null }) {
-  const where: SQL[] = [
-    eq(rides.driverId, driverId),
-    isNotNull(rides.assignedAt),
-    gte(rides.assignedAt, shift.startedAt),
-  ];
-  if (shift.endedAt) where.push(lte(rides.assignedAt, shift.endedAt));
   return db
-    .select({
-      id: rides.id,
-      status: rides.status,
-      source: rides.source,
-      customerName: rides.customerName,
-      pickupAddress: rides.pickupAddress,
-      dropoffAddress: rides.dropoffAddress,
-      assignedAt: rides.assignedAt,
-      startedAt: rides.startedAt,
-      finishedAt: rides.finishedAt,
-      price: rides.price,
-    })
+    .select(shiftRideCols)
     .from(rides)
-    .where(and(...where))
+    .where(shiftRideWhere(driverId, shift))
     .orderBy(desc(rides.assignedAt));
 }
 

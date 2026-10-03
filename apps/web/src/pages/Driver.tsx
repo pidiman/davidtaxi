@@ -5,7 +5,8 @@ import { DriverNav, type NavPos, type NavTarget } from '../components/DriverNav'
 import { IncidentReport } from '../components/IncidentReport';
 import { IncomingRideAlert } from '../components/IncomingRideAlert';
 import { Modal } from '../components/Modal';
-import { ShiftBar, ShiftStart } from '../components/ShiftControls';
+import { MyRides } from '../components/MyRides';
+import { EndShiftDialog, ShiftBar, ShiftStart } from '../components/ShiftControls';
 import { testRing, unlockAudio } from '../lib/alarm';
 import {
   api,
@@ -42,6 +43,8 @@ export function Driver() {
   const [pos, setPos] = useState<NavPos | null>(null);
   const [nav, setNav] = useState<NavTarget | null>(null);
   const [incident, setIncident] = useState(false);
+  const [myRides, setMyRides] = useState(false);
+  const [endShift, setEndShift] = useState(false);
   const [toast, setToast] = useState('');
   const lastSent = useRef(0);
   const lastPos = useRef<Pos | null>(null);
@@ -182,6 +185,7 @@ export function Driver() {
         } else setRides((l) => l.map((x) => (x.id === res.id ? res : x)));
       }
       if (action === 'accept' || action === 'finish') setMe(await api<DriverT>('/api/driver/me'));
+      if (action === 'finish') setShiftInfo(await api<DriverShiftInfo>('/api/driver/shift'));
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -261,8 +265,18 @@ export function Driver() {
       <div className="flex items-center justify-between">
         <Wordmark size={24} />
         <div className="flex items-center gap-2">
-          <StatusButton status={me?.status ?? 'offline'} onChange={setStatus} />
-          <DriverMenu onIncident={() => setIncident(true)} onTestRing={testRing} onLogout={logout} />
+          <StatusButton
+            status={me?.status ?? 'offline'}
+            onChange={setStatus}
+            canEnd={!rides.some((r) => ['accepted', 'arrived', 'in_progress'].includes(r.status))}
+            onEndShift={() => setEndShift(true)}
+          />
+          <DriverMenu
+            onMyRides={() => setMyRides(true)}
+            onIncident={() => setIncident(true)}
+            onTestRing={testRing}
+            onLogout={logout}
+          />
         </div>
       </div>
 
@@ -310,11 +324,7 @@ export function Driver() {
       {shift && (
         <ShiftBar
           shift={shift}
-          canEnd={!rides.some((r) => ['accepted', 'arrived', 'in_progress'].includes(r.status))}
-          onEnded={() => {
-            setFinished(null);
-            load().catch((e) => setErr(e.message));
-          }}
+          liveKm={Number(rides.find((r) => r.status === 'in_progress')?.distanceKm ?? 0)}
         />
       )}
 
@@ -415,6 +425,20 @@ export function Driver() {
         />
       )}
 
+      {endShift && shift && (
+        <EndShiftDialog
+          shift={shift}
+          onClose={() => setEndShift(false)}
+          onEnded={() => {
+            setEndShift(false);
+            setFinished(null);
+            load().catch((e) => setErr(e.message));
+          }}
+        />
+      )}
+
+      {myRides && <MyRides onClose={() => setMyRides(false)} />}
+
       {incident && (
         <IncidentReport
           onClose={() => setIncident(false)}
@@ -440,23 +464,37 @@ const STATUS_OPTS: { s: 'available' | 'break'; label: string; hint: string }[] =
   { s: 'break', label: 'Pauza', hint: 'Nedostávaš nové jazdy' },
 ];
 
-/** Tlačidlo so stavom – klik otvorí popup s výberom (Online / Pauza). */
-function StatusButton({ status, onChange }: { status: DriverStatus; onChange: (s: DriverStatus) => void }) {
+/** Tlačidlo so stavom – klik otvorí popup: Online / Pauza / Ukončiť smenu. */
+function StatusButton({
+  status,
+  onChange,
+  canEnd,
+  onEndShift,
+}: {
+  status: DriverStatus;
+  onChange: (s: DriverStatus) => void;
+  canEnd: boolean;
+  onEndShift: () => void;
+}) {
   const [open, setOpen] = useState(false);
-  if (status === 'busy') {
-    return <span className="rounded-full bg-text px-3.5 py-2 text-sm font-bold text-black">Na jazde</span>;
-  }
-  const label = status === 'break' ? 'Pauza' : status === 'available' ? 'Online' : 'Offline';
+  const busy = status === 'busy';
+  const label = busy
+    ? 'Na jazde'
+    : status === 'break'
+      ? 'Pauza'
+      : status === 'available'
+        ? 'Online'
+        : 'Offline';
   return (
     <>
       <button
         type="button"
         onClick={() => setOpen(true)}
         aria-haspopup="dialog"
-        className={`flex items-center gap-2 rounded-full px-3.5 py-2 text-sm font-bold ${status === 'available' ? 'bg-taxi text-black' : 'bg-raised text-text'}`}
+        className={`flex items-center gap-2 rounded-full px-3.5 py-2 text-sm font-bold ${status === 'available' ? 'bg-taxi text-black' : busy ? 'bg-text text-black' : 'bg-raised text-text'}`}
       >
         <span
-          className={`h-2.5 w-2.5 rounded-full ${status === 'available' ? 'bg-black' : 'bg-muted'}`}
+          className={`h-2.5 w-2.5 rounded-full ${status === 'available' || busy ? 'bg-black' : 'bg-muted'}`}
           aria-hidden="true"
         />
         {label}
@@ -475,17 +513,28 @@ function StatusButton({ status, onChange }: { status: DriverStatus; onChange: (s
       {open && (
         <Modal title="Môj stav" onClose={() => setOpen(false)}>
           <div className="flex flex-col gap-2.5">
+            {busy && (
+              <div className="flex items-center gap-3 rounded-2xl border-2 border-text p-4">
+                <span className="h-4 w-4 shrink-0 rounded-full bg-text" aria-hidden="true" />
+                <span className="flex-1">
+                  <span className="block text-lg font-bold">Na jazde</span>
+                  <span className="block text-sm text-muted">Po dokončení jazdy budeš znova Online</span>
+                </span>
+                <span className="text-sm font-semibold">aktuálne</span>
+              </div>
+            )}
             {STATUS_OPTS.map((o) => {
               const active = status === o.s;
               return (
                 <button
                   key={o.s}
                   type="button"
+                  disabled={busy}
                   onClick={() => {
                     if (!active) onChange(o.s);
                     setOpen(false);
                   }}
-                  className={`flex items-center gap-3 rounded-2xl p-4 text-left ${active ? 'border-2 border-taxi bg-taxi-dim' : 'border border-line'}`}
+                  className={`flex items-center gap-3 rounded-2xl p-4 text-left disabled:opacity-40 ${active ? 'border-2 border-taxi bg-taxi-dim' : 'border border-line'}`}
                 >
                   <span
                     className={`h-4 w-4 shrink-0 rounded-full ${o.s === 'available' ? 'bg-taxi' : 'bg-[#5a5a5a]'}`}
@@ -499,6 +548,34 @@ function StatusButton({ status, onChange }: { status: DriverStatus; onChange: (s
                 </button>
               );
             })}
+            <button
+              type="button"
+              disabled={!canEnd}
+              onClick={() => {
+                setOpen(false);
+                onEndShift();
+              }}
+              className="mt-1.5 flex items-center gap-3 rounded-2xl border border-red-400/50 p-4 text-left disabled:opacity-40"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#fca5a5"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                aria-hidden="true"
+              >
+                <path d="M18.4 6.6a9 9 0 1 1-12.8 0M12 2v10" />
+              </svg>
+              <span className="flex-1">
+                <span className="block text-lg font-bold text-red-200">Ukončiť smenu</span>
+                <span className="block text-sm text-muted">
+                  {canEnd ? 'Zapíšeš konečný stav km' : 'Najprv dokonči rozbehnutú jazdu'}
+                </span>
+              </span>
+            </button>
           </div>
         </Modal>
       )}
@@ -508,10 +585,12 @@ function StatusButton({ status, onChange }: { status: DriverStatus; onChange: (s
 
 /** Hamburger menu vodiča. */
 function DriverMenu({
+  onMyRides,
   onIncident,
   onTestRing,
   onLogout,
 }: {
+  onMyRides: () => void;
   onIncident: () => void;
   onTestRing: () => void;
   onLogout: () => void;
@@ -577,6 +656,27 @@ function DriverMenu({
                 <path d="M12 9v4M12 17h.01" />
               </svg>
               Incident
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className={`${item} border-t border-line font-semibold`}
+              onClick={pick(onMyRides)}
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+              </svg>
+              Moje jazdy
             </button>
             <button
               type="button"

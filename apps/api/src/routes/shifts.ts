@@ -5,6 +5,7 @@ import { db } from '../db/index.js';
 import { rides, schedules, shifts, users, vehicles } from '../db/schema.js';
 import { audit, byFields, who } from '../log.js';
 import { emitDispatch, emitDriver } from '../realtime.js';
+import { shiftRideCols, shiftRideStats, shiftRideWhere } from '../shiftRides.js';
 import { HttpError, num, str } from '../util.js';
 
 type Body = Record<string, unknown>;
@@ -174,7 +175,65 @@ export async function shiftRoutes(app: FastifyInstance) {
         scheduled: schedule?.vehicleId === v.id,
       })),
     );
-    return { shift: open ? await shiftView(open.id) : null, schedule, vehicles: cars };
+    const view = open ? await shiftView(open.id) : null;
+    const stats = open ? await shiftRideStats(req.user.id, open) : null;
+    return { shift: view ? { ...view, stats } : null, schedule, vehicles: cars };
+  });
+
+  // ================= Vodič: Moje jazdy =================
+  /** Zoznam mojich smien (na výber v „Moje jazdy“), najnovšie prvé. */
+  app.get('/api/driver/my-shifts', driver, async (req) => {
+    const rows = await db
+      .select({
+        id: shifts.id,
+        startedAt: shifts.startedAt,
+        endedAt: shifts.endedAt,
+        vehicleCallsign: vehicles.callsign,
+        vehiclePlate: vehicles.plate,
+        startKm: shifts.startKm,
+        endKm: shifts.endKm,
+      })
+      .from(shifts)
+      .innerJoin(vehicles, eq(vehicles.id, shifts.vehicleId))
+      .where(eq(shifts.driverId, req.user.id))
+      .orderBy(desc(shifts.startedAt))
+      .limit(60);
+    return rows;
+  });
+
+  /** Jazdy jednej smeny (predvolene aktuálna, inak posledná) + súhrn. */
+  app.get<{ Querystring: { shiftId?: string } }>('/api/driver/my-rides', driver, async (req) => {
+    const sid = Number(req.query.shiftId);
+    const [s] = await db
+      .select({
+        id: shifts.id,
+        startedAt: shifts.startedAt,
+        endedAt: shifts.endedAt,
+        vehicleCallsign: vehicles.callsign,
+        vehiclePlate: vehicles.plate,
+        startKm: shifts.startKm,
+        endKm: shifts.endKm,
+      })
+      .from(shifts)
+      .innerJoin(vehicles, eq(vehicles.id, shifts.vehicleId))
+      .where(
+        sid ? and(eq(shifts.id, sid), eq(shifts.driverId, req.user.id)) : eq(shifts.driverId, req.user.id),
+      )
+      .orderBy(desc(shifts.startedAt))
+      .limit(1);
+    if (!s) {
+      if (sid) throw new HttpError(404, 'Smena neexistuje');
+      return { shift: null, rides: [], stats: null };
+    }
+    const [list, stats] = await Promise.all([
+      db
+        .select(shiftRideCols)
+        .from(rides)
+        .where(shiftRideWhere(req.user.id, s))
+        .orderBy(desc(rides.assignedAt)),
+      shiftRideStats(req.user.id, s),
+    ]);
+    return { shift: s, rides: list, stats };
   });
 
   app.post('/api/driver/shift/start', driver, async (req, reply) => {

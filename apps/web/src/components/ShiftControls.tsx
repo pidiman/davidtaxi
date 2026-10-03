@@ -165,38 +165,29 @@ function CarOption({ car, selected, onSelect }: { car: ShiftCar; selected: boole
   );
 }
 
-/** Lišta aktuálnej smeny + ukončenie so zápisom konečného stavu km. */
-export function ShiftBar({ shift, canEnd, onEnded }: { shift: Shift; canEnd: boolean; onEnded: () => void }) {
-  const [open, setOpen] = useState(false);
+/** Karta auta v smene: fotka, ŠPZ, počiatočný stav km a km odjazdené na jazdách v tejto smene. */
+export function ShiftBar({ shift, liveKm = 0 }: { shift: Shift; liveKm?: number }) {
+  const rideKm = (shift.stats?.km ?? 0) + liveKm;
   return (
-    <>
-      <div className="flex items-center gap-3 rounded-2xl bg-panel p-2.5">
-        <CarPhoto url={shift.vehiclePhotoUrl} callsign={shift.vehicleCallsign} size="sm" />
-        <div className="min-w-0 flex-1 leading-tight">
-          <div className="font-bold">
-            Auto {shift.vehicleCallsign}{' '}
-            <span className="font-normal text-muted">· {shift.vehiclePlate}</span>
-          </div>
-          <div className="text-xs text-muted">
-            smena od {fmtTime(shift.startedAt)} · štart {fmtInt(shift.startKm)} km
-          </div>
+    <div className="flex items-center gap-3 rounded-2xl bg-panel p-2.5">
+      <CarPhoto url={shift.vehiclePhotoUrl} callsign={shift.vehicleCallsign} size="sm" />
+      <div className="min-w-0 flex-1 leading-tight">
+        <div className="font-display text-xl font-bold tracking-wider">{shift.vehiclePlate}</div>
+        <div className="mt-0.5 text-[13px] text-muted">
+          Štart <span className="text-soft tabular-nums">{fmtInt(shift.startKm)} km</span>
         </div>
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          disabled={!canEnd}
-          title={canEnd ? undefined : 'Najprv dokonči rozbehnuté jazdy'}
-          className="btn-ghost shrink-0 px-3 py-2 text-sm"
-        >
-          Ukončiť smenu
-        </button>
+        <div className="text-[13px] text-muted">
+          Na jazdách{' '}
+          <span className="font-semibold text-taxi tabular-nums">
+            {rideKm.toLocaleString('sk-SK', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km
+          </span>
+        </div>
       </div>
-      {open && <EndShiftDialog shift={shift} onClose={() => setOpen(false)} onEnded={onEnded} />}
-    </>
+    </div>
   );
 }
 
-function EndShiftDialog({
+export function EndShiftDialog({
   shift,
   onClose,
   onEnded,
