@@ -3,11 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch --env-file=../../.env src/index.ts",
+    "dev": "tsx watch --env-file=../../.env.dev src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "db:generate": "drizzle-kit generate",
-    "vapid": "tsx src/vapid.ts"
+    "vapid": "tsx src/vapid.ts",
+    "seed": "tsx --env-file=../../.env.dev src/seed.ts"
   },
   "dependencies": {
     "@fastify/jwt": "10.2.2",

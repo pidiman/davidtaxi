@@ -58,13 +58,35 @@ Ručne priamo na hoste:
 git clone https://github.com/pidiman/davidtaxi.git /opt/davidtaxi && cd /opt/davidtaxi
 cp .env.example .env && nano .env      # POSTGRES_PASSWORD, JWT_SECRET, ADMIN_PASSWORD, PUBLIC_URL
 docker compose build app
-docker compose run --rm --no-deps app node dist/vapid.js   # výstup vlož do .env
+docker compose run --rm --no-deps app node apps/api/dist/vapid.js   # výstup vlož do .env
 docker compose up -d db app
 docker compose logs -f app             # "Vytvorený prvý admin" + "Server listening"
 curl -s localhost:8088/api/health      # {"ok":true}
 ```
 
 Migrácie databázy sa spustia automaticky pri štarte. Prvý admin sa vytvorí z `ADMIN_USERNAME` / `ADMIN_PASSWORD`, iba ak je databáza prázdna. Port `8088` je zvolený tak, aby nekolidoval s kurierom (`8090`).
+
+### Ako dlho trvá deploy
+
+`deploy.sh` vypíše čas každého kroku. Orientačné časy:
+
+| Situácia | Build |
+|---|---|
+| prvý deploy (sťahujú sa obrazy a balíčky) | 3–5 min |
+| zmena kódu | 30–60 s (len TypeScript + Vite build) |
+| zmena `package.json` / `pnpm-lock.yaml` | 1–2 min (balíčky z cache) |
+
+**Pomalý build (vfs):** ak skript hlási `storage driver: vfs`, Docker v Proxmox LXC kopíruje pri každom kroku celý image a build je 5–10× pomalší. Typicky sa to stáva, keď je rootfs kontajnera na ZFS. Riešenie na Docker hoste:
+
+```bash
+docker info --format '{{.Driver}}'             # vfs = pomalé, overlay2 = OK
+# Proxmox 8 so ZFS 2.2+ zvládne overlay2 aj na ZFS:
+cat /etc/docker/daemon.json                   # ak obsahuje "storage-driver": "vfs", odstráň ho
+echo '{ "storage-driver": "overlay2" }' > /etc/docker/daemon.json
+systemctl restart docker && docker info --format '{{.Driver}}'
+```
+
+> Po zmene drivera Docker nevidí staré image ani volumes (sú uložené vo formáte vfs). **Pred zmenou si zálohuj databázy** (pozri Záloha databázy) všetkých appiek na tomto hoste, potom ich znova nasaď a obnov. Ak overlay2 nenaštartuje (staršie ZFS), daj Dockeru disk s ext4: v Proxmoxe pridaj LXC mount point z LVM-thin/dir storage na `/var/lib/docker`.
 
 ### Nginx Proxy Manager (HTTPS)
 
@@ -120,14 +142,45 @@ Portainer potom stack sám buildne zo zdrojákov.
 
 ---
 
-## Lokálny vývoj
+## Lokálny vývoj na Macu (bez deployu)
+
+Zmeny skúšaj lokálne a na server nasadzuj až hotovú verziu. Lokálne sa nič nebuildí: API aj web sa po uložení súboru reštartujú alebo obnovia za ~1 s.
+
+**Jednorazovo:**
+- Node 22 a pnpm: `brew install node@22 && corepack enable`
+- Docker pre databázu: OrbStack alebo Docker Desktop
 
 ```bash
+cd ~/Projects/davidtaxi
 pnpm install
-cp .env.example .env   # DATABASE_URL=postgres://davidtaxi:heslo@localhost:5432/davidtaxi
-pnpm dev               # API :3000, web :5173 (proxy na /api a /socket.io)
-pnpm check             # Biome
-pnpm db:generate       # po zmene apps/api/src/db/schema.ts vygeneruje novú migráciu
+pnpm dev:db        # Postgres v Dockeri na localhost:5433 (docker-compose.dev.yml)
+pnpm seed          # ukážkové dáta: autá 07 a 02, vodiči, dispečer, rozpis na týždeň
+```
+
+**Každý deň:**
+
+```bash
+pnpm dev:db        # ak databáza nebeží
+pnpm dev           # API :3000 + web http://localhost:5173
+```
+
+| Kto | Login | Heslo | Kde |
+|---|---|---|---|
+| Admin | `admin` | `admin1234` | http://localhost:5173 |
+| Dispečer | `dana` | `dispecer1234` | http://localhost:5173 |
+| Vodič | `peter`, `jano` | `vodic1234` | http://localhost:5173/driver |
+
+Tipy:
+- **Dispečer aj vodič naraz:** dispečera otvor v Chrome a vodiča v anonymnom okne (alebo v Safari), každé okno má vlastné prihlásenie.
+- **Mobilné zobrazenie a GPS v prehliadači:** v Chrome DevTools (⌥⌘I) prepni na *Toggle device toolbar*. V ponuke ⋮ → *More tools* → *Sensors* nastavíš polohu, napr. Stupava 48.2745, 17.0318. Zmenou súradníc simuluješ jazdu a počítanie km.
+- **Na reálnom mobile:** GPS a notifikácie vyžadujú HTTPS. Ak máš na Macu Tailscale, spusti `tailscale serve --bg 5173` a na mobile v Tailscale otvor `https://<nazov-macu>.<tailnet>.ts.net/driver`.
+- **Konfigurácia:** lokálne nastavenia sú v `.env.dev` (bez tajomstiev, je v gite). Produkčný `.env` vytvára `deploy.sh` a lokálny vývoj ho nepoužíva.
+- **Čistá databáza:** `docker compose -f docker-compose.dev.yml down -v && pnpm dev:db && pnpm seed`
+
+```bash
+pnpm check         # Biome (lint + formát)
+pnpm build         # rovnaký build ako v Dockeri – keď prejde lokálne, prejde aj na serveri
+pnpm db:generate   # po zmene apps/api/src/db/schema.ts vygeneruje novú migráciu
 ```
 
 ## Obmedzenia PWA

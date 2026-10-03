@@ -8,6 +8,8 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    // náhľad na mobile cez Tailscale (tailscale serve) alebo názov Macu v sieti
+    allowedHosts: ['.ts.net', '.local'],
     proxy: {
       '/api': 'http://localhost:3000',
       '/socket.io': { target: 'http://localhost:3000', ws: true },

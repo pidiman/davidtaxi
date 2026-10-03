@@ -1,0 +1,21 @@
+# Len databáza pre lokálny vývoj na Macu (appka beží cez `pnpm dev` priamo, bez buildu).
+#   pnpm dev:db      # spustí Postgres na localhost:5433
+#   pnpm dev         # API :3000 + web :5173 s automatickým reloadom
+name: davidtaxi-dev
+
+services:
+  db:
+    image: postgres:17.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: davidtaxi
+      POSTGRES_USER: davidtaxi
+      POSTGRES_PASSWORD: davidtaxi
+      TZ: Europe/Bratislava
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata-dev:/var/lib/postgresql/data
+
+volumes:
+  pgdata-dev:

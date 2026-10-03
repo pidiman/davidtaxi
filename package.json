@@ -3,7 +3,9 @@
   "private": true,
   "packageManager": "pnpm@10.18.0",
   "scripts": {
+    "dev:db": "docker compose -f docker-compose.dev.yml up -d",
     "dev": "pnpm -r --parallel dev",
+    "seed": "pnpm --filter api seed",
     "build": "pnpm --filter web build && pnpm --filter api build",
     "check": "biome check .",
     "format": "biome format --write .",
