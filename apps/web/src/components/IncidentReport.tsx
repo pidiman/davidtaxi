@@ -1,6 +1,14 @@
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
-import { api, fmtTime, type Incident, type IncidentContext, STATUS_LABEL } from '../lib/api';
+import {
+  api,
+  fmtTime,
+  type Incident,
+  type IncidentContext,
+  type IncidentRide,
+  STATUS_LABEL,
+} from '../lib/api';
 import { resizeImage } from '../lib/image';
+import { Modal } from './Modal';
 
 const MAX_PHOTOS = 6;
 
@@ -37,10 +45,17 @@ export function IncidentReport({
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  const [picking, setPicking] = useState(false);
+  const selected = ctx?.rides.find((r) => r.id === rideId) ?? null;
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: načíta sa raz pri otvorení
   useEffect(() => {
     api<IncidentContext>('/api/driver/incidents/context')
-      .then(setCtx)
+      .then((c) => {
+        setCtx(c);
+        // komentár: predvolene posledná jazda
+        if (isComment) setRideId((cur) => cur ?? c.rides[0]?.id ?? null);
+      })
       .catch((e) => setErr(e.message));
   }, []);
 
@@ -214,9 +229,42 @@ export function IncidentReport({
           </div>
           {!ctx && !err && <div className="text-sm text-muted">Načítavam jazdy…</div>}
           {ctx && (
+            <button
+              type="button"
+              onClick={() => setPicking(true)}
+              className="flex items-center gap-3 rounded-xl border border-line p-3 text-left"
+              aria-label="Zmeniť jazdu"
+            >
+              <span className="min-w-0 flex-1">
+                {selected ? (
+                  <RideSummary r={selected} />
+                ) : (
+                  <>
+                    <span className="font-semibold">Bez jazdy</span>
+                    <span className="block text-[13px] text-muted">
+                      {ctx.rides.length ? 'napr. škoda na aute, nehoda bez zákazníka' : 'v smene nemáš jazdy'}
+                    </span>
+                  </>
+                )}
+              </span>
+              {(ctx.rides.length > 1 || (!isComment && ctx.rides.length > 0)) && (
+                <span className="shrink-0 text-sm font-semibold text-taxi">Zmeniť</span>
+              )}
+            </button>
+          )}
+        </div>
+
+        {picking && ctx && (
+          <Modal title="Vyber jazdu" onClose={() => setPicking(false)}>
             <div className="flex flex-col gap-1.5">
               {!isComment && (
-                <RideOption checked={rideId === null} onSelect={() => setRideId(null)}>
+                <RideOption
+                  checked={rideId === null}
+                  onSelect={() => {
+                    setRideId(null);
+                    setPicking(false);
+                  }}
+                >
                   <span className="font-semibold">Bez jazdy</span>
                   <span className="block text-[13px] text-muted">
                     napr. škoda na aute, nehoda bez zákazníka
@@ -224,27 +272,20 @@ export function IncidentReport({
                 </RideOption>
               )}
               {ctx.rides.map((r) => (
-                <RideOption key={r.id} checked={rideId === r.id} onSelect={() => setRideId(r.id)}>
-                  <span className="flex justify-between gap-2 text-[13px] text-muted">
-                    <span>
-                      #{r.id} · {fmtTime(r.startedAt ?? r.assignedAt)}
-                      {r.finishedAt ? `–${fmtTime(r.finishedAt)}` : ''}
-                      {r.source === 'street' ? ' · z ulice' : ''}
-                    </span>
-                    <span>{STATUS_LABEL[r.status]}</span>
-                  </span>
-                  <span className="block font-semibold">{r.customerName}</span>
-                  <span className="block truncate text-sm text-soft">
-                    {r.pickupAddress} → {r.dropoffAddress || 'bez cieľa'}
-                  </span>
+                <RideOption
+                  key={r.id}
+                  checked={rideId === r.id}
+                  onSelect={() => {
+                    setRideId(r.id);
+                    setPicking(false);
+                  }}
+                >
+                  <RideSummary r={r} />
                 </RideOption>
               ))}
-              {ctx.rides.length === 0 && (
-                <div className="text-sm text-muted">V tejto smene zatiaľ nemáš žiadne jazdy.</div>
-              )}
             </div>
-          )}
-        </div>
+          </Modal>
+        )}
 
         {err && <div className="rounded-xl bg-red-950/70 p-3 text-sm text-red-100">{err}</div>}
 
@@ -299,5 +340,24 @@ function RideOption({
     >
       {children}
     </button>
+  );
+}
+
+function RideSummary({ r }: { r: IncidentRide }) {
+  return (
+    <>
+      <span className="flex justify-between gap-2 text-[13px] text-muted">
+        <span>
+          #{r.id} · {fmtTime(r.startedAt ?? r.assignedAt)}
+          {r.finishedAt ? `–${fmtTime(r.finishedAt)}` : ''}
+          {r.source === 'street' ? ' · z ulice' : ''}
+        </span>
+        <span>{STATUS_LABEL[r.status]}</span>
+      </span>
+      <span className="block font-semibold">{r.customerName}</span>
+      <span className="block truncate text-sm text-soft">
+        {r.pickupAddress} → {r.dropoffAddress || 'bez cieľa'}
+      </span>
+    </>
   );
 }

@@ -782,25 +782,29 @@ function RideCard({
     <div
       className={`flex flex-1 flex-col gap-4 rounded-[22px] bg-panel p-5 ${s === 'assigned' ? 'border-2 border-taxi' : ''}`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-[13px] font-bold uppercase tracking-[2px] text-taxi">
-            {s === 'assigned' ? 'Nová jazda' : STATUS_LABEL[s]}
-          </div>
-          {toB ? (
+      <div>
+        <div className="text-[13px] font-bold uppercase tracking-[2px] text-taxi">
+          {s === 'assigned' ? 'Nová jazda' : s === 'accepted' ? 'Na ceste k zákazníkovi' : STATUS_LABEL[s]}
+        </div>
+        {toB && (
+          <>
             <div className="font-display text-[64px] font-extrabold leading-[0.95] tabular-nums">
               {fmtKm(Number(ride.distanceKm))} <span className="text-[26px] text-taxi">km</span>
             </div>
-          ) : (
-            <div className="font-display text-[30px] font-bold leading-tight">{ride.customerName}</div>
-          )}
+            <div className="text-[13px] text-muted">trvanie {mmss}</div>
+          </>
+        )}
+        {ride.scheduledAt && !toB && (
           <div className="text-[13px] text-muted">
-            {toB ? `trvanie ${mmss}` : `${ride.passengers} ${ride.passengers === 1 ? 'osoba' : 'osoby'}`}
-            {ride.scheduledAt &&
-              !toB &&
-              ` · na ${new Date(ride.scheduledAt).toLocaleString('sk-SK', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'numeric' })}`}
+            na{' '}
+            {new Date(ride.scheduledAt).toLocaleString('sk-SK', {
+              hour: '2-digit',
+              minute: '2-digit',
+              day: 'numeric',
+              month: 'numeric',
+            })}
           </div>
-        </div>
+        )}
       </div>
 
       <div className="flex gap-3.5">
@@ -829,7 +833,13 @@ function RideCard({
 
       <div className="flex items-center gap-3 rounded-[14px] bg-ink p-3.5">
         <div className="min-w-0 flex-1">
-          <div className="font-bold">{ride.customerName}</div>
+          <div className="font-bold">
+            {ride.customerName}
+            <span className="font-normal text-muted">
+              {' '}
+              · {ride.passengers} {ride.passengers === 1 ? 'osoba' : ride.passengers <= 4 ? 'osoby' : 'osôb'}
+            </span>
+          </div>
           <div className="text-sm text-soft">
             {ride.customerPhone ?? (ride.source === 'street' ? 'zákazník z ulice' : '')}
           </div>
