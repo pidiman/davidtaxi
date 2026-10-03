@@ -2,6 +2,8 @@ import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { AddressInput } from '../components/AddressInput';
 import { TaxiIcon, Wordmark } from '../components/Brand';
 import { DriverNav, type NavPos, type NavTarget } from '../components/DriverNav';
+import { IncomingRideAlert } from '../components/IncomingRideAlert';
+import { testRing, unlockAudio } from '../lib/alarm';
 import {
   api,
   type DriverStatus,
@@ -21,22 +23,6 @@ type Pos = { lat: number; lng: number; accuracy: number };
 const PRIORITY: Record<string, number> = { in_progress: 0, arrived: 1, accepted: 2, assigned: 3 };
 const SEND_EVERY_MS = 10_000;
 const SEND_EVERY_RIDE_MS = 5_000;
-
-function beep() {
-  try {
-    const ctx = new AudioContext();
-    [0, 0.35, 0.7].forEach((t) => {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.frequency.value = 880;
-      g.gain.value = 0.2;
-      o.connect(g).connect(ctx.destination);
-      o.start(ctx.currentTime + t);
-      o.stop(ctx.currentTime + t + 0.2);
-    });
-    navigator.vibrate?.([300, 150, 300, 150, 300]);
-  } catch {}
-}
 
 export function Driver() {
   const { logout } = useAuth();
@@ -60,6 +46,13 @@ export function Driver() {
     setRides(r);
   }, []);
 
+  // prehliadač pustí zvuk až po dotyku – odomkneme ho pri každom ťuknutí do appky
+  useEffect(() => {
+    const unlock = () => unlockAudio();
+    document.addEventListener('pointerdown', unlock);
+    return () => document.removeEventListener('pointerdown', unlock);
+  }, []);
+
   useEffect(() => {
     load().catch((e) => setErr(e.message));
     registerSW()
@@ -71,8 +64,6 @@ export function Driver() {
   const connected = useSocket({
     'ride:updated': (r: Ride) => {
       setRides((list) => {
-        const isNew = r.status === 'assigned' && !list.some((x) => x.id === r.id);
-        if (isNew) beep();
         const rest = list.filter((x) => x.id !== r.id);
         return PRIORITY[r.status] !== undefined ? [...rest, r] : rest;
       });
@@ -184,6 +175,10 @@ export function Driver() {
       setErr((e as Error).message);
     }
   }
+
+  const incoming = rides
+    .filter((r) => r.status === 'assigned')
+    .sort((a, b) => (a.assignedAt ?? '').localeCompare(b.assignedAt ?? ''));
 
   const sorted = [...rides].sort((a, b) => PRIORITY[a.status] - PRIORITY[b.status]);
   const current = sorted[0];
@@ -330,11 +325,28 @@ export function Driver() {
         </div>
       )}
 
-      {nav && <DriverNav target={nav} pos={pos} onClose={() => setNav(null)} />}
+      {nav && !incoming.length && <DriverNav target={nav} pos={pos} onClose={() => setNav(null)} />}
 
-      <button type="button" onClick={logout} className="mt-auto self-center py-2 text-sm text-muted">
-        Odhlásiť sa
-      </button>
+      {incoming[0] && (
+        <IncomingRideAlert
+          key={incoming[0].id}
+          ride={incoming[0]}
+          waiting={incoming.length - 1}
+          pos={pos}
+          busy={busy}
+          onAccept={() => act(incoming[0], 'accept')}
+          onReject={() => confirm('Naozaj odmietnuť jazdu?') && act(incoming[0], 'reject')}
+        />
+      )}
+
+      <div className="mt-auto flex items-center justify-center gap-6">
+        <button type="button" onClick={testRing} className="py-2 text-sm text-muted">
+          Vyskúšať zvonenie
+        </button>
+        <button type="button" onClick={logout} className="py-2 text-sm text-muted">
+          Odhlásiť sa
+        </button>
+      </div>
     </div>
   );
 }

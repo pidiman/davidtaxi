@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, inArray, lt, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { DISPATCH, requireRole } from '../auth.js';
 import { db } from '../db/index.js';
@@ -132,7 +132,7 @@ export async function rideRoutes(app: FastifyInstance) {
       .where(eq(rides.id, id));
     const view = await broadcastRide(id, r.driverId);
     await sendPush(driverId, {
-      title: 'Nová jazda',
+      title: '🚕 NOVÁ JAZDA – otvor appku',
       body: `${r.pickupAddress} → ${r.dropoffAddress}`,
       url: '/driver',
       tag: `ride-${id}`,
@@ -334,4 +334,44 @@ async function refreshDriverAvailability(driverId: number) {
     .where(and(eq(rides.driverId, driverId), inArray(rides.status, ['accepted', 'arrived', 'in_progress'])));
   const [d] = await db.select({ s: users.driverStatus }).from(users).where(eq(users.id, driverId));
   if (!other.length && d?.s === 'busy') await setDriverStatus(driverId, 'available');
+}
+
+/**
+ * Pripomienky: kým vodič jazdu neprijme ani neodmietne, každých 30 s mu príde ďalšia push
+ * notifikácia (max 6×). Pomôže, keď má mobil zamknutý vo vrecku.
+ */
+const reminded = new Map<string, number>();
+export function startAssignReminders() {
+  const timer = setInterval(async () => {
+    try {
+      const rows = await db
+        .select({
+          id: rides.id,
+          driverId: rides.driverId,
+          assignedAt: rides.assignedAt,
+          pickupAddress: rides.pickupAddress,
+          dropoffAddress: rides.dropoffAddress,
+        })
+        .from(rides)
+        .where(and(eq(rides.status, 'assigned'), lt(rides.assignedAt, new Date(Date.now() - 25_000))));
+      const live = new Set(rows.map((r) => `${r.id}-${r.assignedAt?.getTime()}`));
+      for (const k of reminded.keys()) if (!live.has(k)) reminded.delete(k);
+      for (const r of rows) {
+        const key = `${r.id}-${r.assignedAt?.getTime()}`;
+        const n = reminded.get(key) ?? 0;
+        if (!r.driverId || n >= 6) continue;
+        reminded.set(key, n + 1);
+        const mins = r.assignedAt ? Math.round((Date.now() - r.assignedAt.getTime()) / 60000) : 0;
+        await sendPush(r.driverId, {
+          title: `Nová jazda stále čaká${mins ? ` (${mins} min)` : ''}`,
+          body: `${r.pickupAddress} → ${r.dropoffAddress}`,
+          url: '/driver',
+          tag: `ride-${r.id}`,
+        });
+      }
+    } catch {
+      /* ďalší pokus o 30 s */
+    }
+  }, 30_000);
+  timer.unref();
 }

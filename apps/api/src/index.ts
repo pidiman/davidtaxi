@@ -11,7 +11,7 @@ import { attachRealtime } from './realtime.js';
 import { adminRoutes } from './routes/admin.js';
 import { authRoutes } from './routes/auth.js';
 import { miscRoutes } from './routes/misc.js';
-import { rideRoutes } from './routes/rides.js';
+import { rideRoutes, startAssignReminders } from './routes/rides.js';
 import { HttpError } from './util.js';
 
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' }, trustProxy: true });
@@ -72,6 +72,7 @@ async function seedAdmin() {
 await runMigrations();
 await seedAdmin();
 attachRealtime(app);
+startAssignReminders();
 await app.listen({ host: '0.0.0.0', port: env.port });
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {

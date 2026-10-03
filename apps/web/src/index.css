@@ -99,3 +99,38 @@ body {
   transform: translate(-50%, -130%);
   display: inline-block;
 }
+
+/* nová jazda: pulzujúci rám (1 záblesk/s – pod hranicou 3 Hz pre fotosenzitivitu) */
+@keyframes incoming-pulse {
+  0%,
+  100% {
+    background-color: #ffc400;
+  }
+  50% {
+    background-color: #000000;
+  }
+}
+@keyframes incoming-text {
+  0%,
+  100% {
+    color: #ffc400;
+  }
+  50% {
+    color: #f2f2f2;
+  }
+}
+.incoming-alert {
+  animation: incoming-pulse 1s ease-in-out infinite;
+}
+.incoming-label {
+  animation: incoming-text 1s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .incoming-alert {
+    animation-duration: 3s;
+  }
+  .incoming-label {
+    animation: none;
+    color: #ffc400;
+  }
+}
