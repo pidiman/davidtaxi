@@ -107,6 +107,8 @@ export function Driver() {
 
   const online = me ? me.status !== 'offline' : false;
   const inProgress = rides.some((r) => r.status === 'in_progress');
+  // počas rozbehnutej jazdy (na ceste k zákazníkovi, na mieste, jazda) sa zákazník z ulice neberie
+  const hasActiveRide = rides.some((r) => ['accepted', 'arrived', 'in_progress'].includes(r.status));
 
   // ---- GPS: posiela polohu, kým je vodič online ----
   useEffect(() => {
@@ -343,7 +345,7 @@ export function Driver() {
         />
       )}
 
-      {online && !inProgress && !street && (
+      {online && !hasActiveRide && !street && (
         <button
           type="button"
           onClick={() => {
@@ -482,6 +484,7 @@ export function Driver() {
           onClose={() => setCommentRide(null)}
           onSent={() => {
             setCommentRide(null);
+            setFinished(null); // súhrn jazdy už netreba potvrdzovať
             setToast('Komentár odoslaný');
             setTimeout(() => setToast(''), 3500);
           }}
