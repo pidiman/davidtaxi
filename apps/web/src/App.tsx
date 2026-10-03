@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
-import type { Role } from './lib/api';
+import { ADMIN_ROLES, DISPATCH_ROLES, type Role } from './lib/api';
 import { AuthProvider, homeFor, useAuth } from './lib/auth';
 import { Admin } from './pages/Admin';
 import { Dispatch } from './pages/Dispatch';
@@ -33,7 +33,7 @@ export function App() {
           <Route
             path="/dispatch"
             element={
-              <Guard roles={['admin', 'dispatcher']}>
+              <Guard roles={DISPATCH_ROLES}>
                 <Dispatch />
               </Guard>
             }
@@ -41,7 +41,7 @@ export function App() {
           <Route
             path="/history"
             element={
-              <Guard roles={['admin', 'dispatcher']}>
+              <Guard roles={DISPATCH_ROLES}>
                 <History />
               </Guard>
             }
@@ -49,7 +49,7 @@ export function App() {
           <Route
             path="/schedule"
             element={
-              <Guard roles={['admin', 'dispatcher']}>
+              <Guard roles={DISPATCH_ROLES}>
                 <Schedule />
               </Guard>
             }
@@ -57,7 +57,7 @@ export function App() {
           <Route
             path="/admin"
             element={
-              <Guard roles={['admin']}>
+              <Guard roles={ADMIN_ROLES}>
                 <Admin />
               </Guard>
             }

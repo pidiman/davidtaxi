@@ -1,14 +1,38 @@
 import bcrypt from 'bcryptjs';
-import { and, asc, count, eq, getTableColumns, ne, or } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  getTableColumns,
+  gte,
+  ilike,
+  inArray,
+  lt,
+  ne,
+  or,
+  type SQL,
+  sql,
+} from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { DISPATCH, requireRole } from '../auth.js';
+import { ADMIN, DISPATCH, requireRole } from '../auth.js';
 import { db } from '../db/index.js';
-import { type Role, rides, shifts, type User, users, type Vehicle, vehicles } from '../db/schema.js';
-import { audit, byFields, who } from '../log.js';
+import {
+  auditLog,
+  type Role,
+  rides,
+  shifts,
+  type User,
+  users,
+  type Vehicle,
+  vehicles,
+} from '../db/schema.js';
+import { audit, byFields, roleSk, who } from '../log.js';
 import { HttpError, num, str } from '../util.js';
 import { photoUrl } from './shifts.js';
 
-const ROLES: Role[] = ['admin', 'dispatcher', 'driver'];
+const ROLES: Role[] = ['owner', 'admin', 'dispatcher', 'driver'];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // všetky stĺpce auta okrem samotnej fotky (bytea)
@@ -89,7 +113,7 @@ function checkPassword(p: string) {
 }
 
 export async function adminRoutes(app: FastifyInstance) {
-  const admin = { preHandler: requireRole('admin') };
+  const admin = { preHandler: requireRole(...ADMIN) };
 
   // ================= Používatelia (vodiči, dispečeri, admini) =================
   app.get('/api/users', admin, async () => {
@@ -119,11 +143,15 @@ export async function adminRoutes(app: FastifyInstance) {
         role,
       })
       .returning();
-    audit('user.created', `Používateľ ${u.name} (${u.role}, @${u.username}) vytvorený – ${who(req)}`, {
-      userId: u.id,
-      role: u.role,
-      ...byFields(req),
-    });
+    audit(
+      'user.created',
+      `Používateľ ${u.name} (${roleSk(u.role)}, @${u.username}) vytvorený – ${who(req)}`,
+      {
+        userId: u.id,
+        role: u.role,
+        ...byFields(req),
+      },
+    );
     return publicUser(u);
   });
 
@@ -151,7 +179,7 @@ export async function adminRoutes(app: FastifyInstance) {
       checkPassword(p);
       patch.passwordHash = await bcrypt.hash(p, 10);
     }
-    if (id === req.user.id && (patch.active === false || (patch.role && patch.role !== 'admin'))) {
+    if (id === req.user.id && (patch.active === false || (patch.role && !ADMIN.includes(patch.role)))) {
       throw new HttpError(400, 'Nemôžeš deaktivovať ani degradovať sám seba');
     }
     if (patch.active === false) patch.driverStatus = 'offline';
@@ -305,5 +333,58 @@ export async function adminRoutes(app: FastifyInstance) {
       ...byFields(req),
     });
     return { ok: true }; // vodičom s týmto autom sa vehicle_id nastaví na NULL (FK on delete set null)
+  });
+
+  // ================= Logy (audit_log) =================
+  // kategória → prefixy udalostí
+  const LOG_CATS: Record<string, string[]> = {
+    rides: ['ride.'],
+    shifts: ['shift.', 'schedule.', 'driver.'],
+    access: ['auth.', 'socket.'],
+    admin: ['user.', 'vehicle.'],
+    system: ['server.', 'push.', 'osrm.', 'geocoder.', 'estimate.', 'reminder.', 'http.'],
+  };
+  app.get<{
+    Querystring: { level?: string; cat?: string; q?: string; before?: string; limit?: string; days?: string };
+  }>('/api/logs', admin, async (req) => {
+    const { level, cat, q, before } = req.query;
+    const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+    const where: SQL[] = [];
+    if (level === 'problems') where.push(inArray(auditLog.level, ['warn', 'error']));
+    else if (level === 'info' || level === 'warn' || level === 'error') where.push(eq(auditLog.level, level));
+    if (cat && LOG_CATS[cat]) {
+      where.push(or(...LOG_CATS[cat].map((p) => ilike(auditLog.evt, `${p}%`)))!);
+    }
+    if (q?.trim()) {
+      const like = `%${q.trim()}%`;
+      where.push(or(ilike(auditLog.msg, like), ilike(auditLog.evt, like), ilike(users.name, like))!);
+    }
+    const days = Number(req.query.days);
+    if (days > 0) where.push(gte(auditLog.at, new Date(Date.now() - days * 86400_000)));
+    if (before) where.push(lt(auditLog.id, Number(before)));
+    const rows = await db
+      .select({
+        id: auditLog.id,
+        at: auditLog.at,
+        level: auditLog.level,
+        evt: auditLog.evt,
+        msg: auditLog.msg,
+        userId: auditLog.userId,
+        userName: users.name,
+        userRole: users.role,
+        fields: auditLog.fields,
+      })
+      .from(auditLog)
+      .leftJoin(users, eq(users.id, auditLog.userId))
+      .where(where.length ? and(...where) : undefined)
+      .orderBy(desc(auditLog.id))
+      .limit(limit + 1);
+    const [{ problems }] = await db
+      .select({ problems: sql<number>`count(*)::int` })
+      .from(auditLog)
+      .where(
+        and(inArray(auditLog.level, ['warn', 'error']), gte(auditLog.at, new Date(Date.now() - 86400_000))),
+      );
+    return { rows: rows.slice(0, limit), hasMore: rows.length > limit, problems24h: problems };
   });
 }

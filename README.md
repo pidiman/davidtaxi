@@ -2,7 +2,8 @@
 
 Dispečing pre taxislužbu: **admin / dispečer dashboard** + **PWA pre vodičov**.
 
-- Admin spravuje vodičov, dispečerov a autá (vytvorenie, úprava, deaktivácia, zmazanie). Pri autách eviduje farbu, rok, počet miest, karosériu, palivo, VIN a platnosť STK, EK a PZP s upozornením 30 dní pred koncom.
+- **Majiteľ** má rovnaké práva ako admin; na jeho e-mail budú neskôr chodiť prevádzkové info (prehľady, upozornenia). Rolu nastavíš v *Admin → Dispečeri a admini*.
+- Admin (sekcia *Admin* v navigácii) spravuje vodičov, dispečerov a autá (vytvorenie, úprava, deaktivácia, zmazanie). Pri autách eviduje farbu, rok, počet miest, karosériu, palivo, VIN a platnosť STK, EK a PZP s upozornením 30 dní pred koncom.
   - Vodiča alebo auto s jazdami v histórii nemožno zmazať, len deaktivovať, aby história ostala úplná.
 - **Vzdialenosť A→B:** pri každej jazde server vypočíta približnú cestnú vzdialenosť podľa mapy (OSRM; ak adresa nemá súradnice, najprv ju geokóduje). Zobrazuje sa v Čakajúcich, Aktívnych jazdách aj v Histórii. Stĺpec *Najazdené* sú skutočné km z GPS.
 - **Smeny a autá:** autá sú firemné. Pred začiatkom smeny vodič vyberie auto (s fotkou, auto podľa rozpisu je zvýraznené) a zapíše počiatočný stav tachometra. Bez toho nedostane jazdy.
@@ -161,7 +162,9 @@ docker compose logs --since 24h app | grep '"evt":"ride\.'  # len jazdy za 24 h
 docker compose logs app | grep '"level":[45]0'              # len varovania a chyby
 ```
 
-Každý riadok je JSON (`level` 30 = info, 40 = warn, 50 = error), čitateľný text je v `msg`, typ udalosti v `evt`.
+Udalosti sa okrem Docker logov ukladajú aj do tabuľky `audit_log` a admin/majiteľ ich vidí v **Admin → Logy** (kategórie Jazdy, Smeny a rozpis, Prihlásenia a spojenie, Zmeny v admine, Systém a chyby; filter *Len problémy*, hľadanie, obdobie, živé obnovovanie, klik na riadok = detail). Uchovávajú sa `LOG_RETENTION_DAYS` dní (predvolene 90).
+
+Každý riadok v Docker logoch je JSON (`level` 30 = info, 40 = warn, 50 = error), čitateľný text je v `msg`, typ udalosti v `evt`.
 
 - **Biznis udalosti (info):** prihlásenie, `ride.*` (created, assigned, accepted, rejected, arrived, started, completed, cancelled, street, returned, reminder), `shift.*` (started, ended, takeover, km_backfill, edited, ended_by_dispatch), `schedule.*`, `user.*`, `vehicle.*`, pripojenie/odpojenie socketu. Mená a adresy zákazníkov sa nelogujú – len ID jazdy.
 - **Varovania (warn):** neúspešné prihlásenie, zamietnuté requesty 4xx s dôvodom, nedoručený push (vodič nemá povolené notifikácie / odber vypršal), výpadok OSRM alebo geokódera.

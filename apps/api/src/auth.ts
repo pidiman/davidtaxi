@@ -37,4 +37,7 @@ export function requireRole(...roles: Role[]) {
   };
 }
 
-export const DISPATCH: Role[] = ['admin', 'dispatcher'];
+/** Majiteľ má rovnaké práva ako admin. */
+export const ADMIN: Role[] = ['owner', 'admin'];
+export const DISPATCH: Role[] = [...ADMIN, 'dispatcher'];
+export const ALL: Role[] = [...DISPATCH, 'driver'];

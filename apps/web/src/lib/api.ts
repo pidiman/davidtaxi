@@ -1,4 +1,14 @@
-export type Role = 'admin' | 'dispatcher' | 'driver';
+export type Role = 'owner' | 'admin' | 'dispatcher' | 'driver';
+export const ROLE_LABEL: Record<Role, string> = {
+  owner: 'Majiteľ',
+  admin: 'Admin',
+  dispatcher: 'Dispečer',
+  driver: 'Vodič',
+};
+/** Majiteľ má rovnaké práva ako admin. */
+export const ADMIN_ROLES: Role[] = ['owner', 'admin'];
+export const DISPATCH_ROLES: Role[] = [...ADMIN_ROLES, 'dispatcher'];
+export const isAdmin = (r: Role | undefined) => !!r && ADMIN_ROLES.includes(r);
 export type DriverStatus = 'offline' | 'available' | 'busy' | 'break';
 export type RideStatus =
   | 'new'

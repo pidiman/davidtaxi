@@ -1,12 +1,12 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { Header } from '../components/Header';
+import { LogsPanel } from '../components/LogsPanel';
 import { Modal } from '../components/Modal';
 import { CarPhoto } from '../components/ShiftControls';
-import { api, DRIVER_LABEL, type Role, type User, type Vehicle } from '../lib/api';
+import { api, DRIVER_LABEL, ROLE_LABEL, type Role, type User, type Vehicle } from '../lib/api';
 import { useAuth } from '../lib/auth';
 
-type Tab = 'drivers' | 'vehicles' | 'staff';
-const ROLE_LABEL: Record<Role, string> = { admin: 'Admin', dispatcher: 'Dispečer', driver: 'Vodič' };
+type Tab = 'drivers' | 'vehicles' | 'staff' | 'logs';
 const FUELS = ['benzín', 'nafta', 'LPG', 'CNG', 'hybrid', 'plug-in hybrid', 'elektro'];
 const BODIES = ['sedan', 'liftback', 'kombi', 'MPV', 'SUV', 'van'];
 
@@ -89,7 +89,7 @@ export function Admin() {
     confirm(`Natrvalo zmazať auto ${v.callsign} (${v.plate})?`) &&
     run(() => api(`/api/vehicles/${v.id}`, { method: 'DELETE' }), 'Auto zmazané');
 
-  const tabBtn = (t: Tab, label: string, n: number) => (
+  const tabBtn = (t: Tab, label: string, n?: number) => (
     <button
       type="button"
       role="tab"
@@ -97,7 +97,7 @@ export function Admin() {
       onClick={() => setTab(t)}
       className={`rounded-lg px-4 py-2.5 font-semibold ${tab === t ? 'bg-taxi text-black' : 'text-soft hover:bg-raised'}`}
     >
-      {label} <span className={tab === t ? 'text-black/60' : 'text-muted'}>{n}</span>
+      {label} {n !== undefined && <span className={tab === t ? 'text-black/60' : 'text-muted'}>{n}</span>}
     </button>
   );
 
@@ -110,8 +110,9 @@ export function Admin() {
             {tabBtn('drivers', 'Vodiči', users.filter((u) => u.role === 'driver').length)}
             {tabBtn('vehicles', 'Autá', vehicles.length)}
             {tabBtn('staff', 'Dispečeri a admini', users.filter((u) => u.role !== 'driver').length)}
+            {tabBtn('logs', 'Logy')}
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className={`flex flex-wrap gap-2 ${tab === 'logs' ? 'hidden' : ''}`}>
             <input
               className="field w-56"
               placeholder="Hľadať…"
@@ -147,7 +148,7 @@ export function Admin() {
           </button>
         )}
 
-        {expiring.length > 0 && tab !== 'staff' && (
+        {expiring.length > 0 && (tab === 'drivers' || tab === 'vehicles') && (
           <div className="rounded-xl border border-taxi/50 bg-taxi-dim px-4 py-3 text-sm text-[#f2e3b0]">
             Pozor – STK, EK alebo PZP končí do 30 dní alebo už prepadlo:{' '}
             {expiring.map((v) => `${v.callsign} (${v.plate})`).join(', ')}
@@ -343,6 +344,8 @@ export function Admin() {
             </table>
           </section>
         )}
+
+        {tab === 'logs' && <LogsPanel />}
       </main>
 
       {editUser && (
@@ -484,8 +487,15 @@ function UserForm({
               <option value="driver">Vodič</option>
               <option value="dispatcher">Dispečer</option>
               <option value="admin">Admin</option>
+              <option value="owner">Majiteľ</option>
             </select>
           </label>
+        )}
+        {f.role === 'owner' && (
+          <p className="m-0 rounded-[10px] bg-ink p-3 text-[13px] leading-snug text-muted">
+            Majiteľ má rovnaké práva ako admin. Na jeho e-mail budú neskôr chodiť prevádzkové info (prehľady,
+            upozornenia) – vyplň ho.
+          </p>
         )}
         <label className="label">
           Meno a priezvisko
@@ -519,8 +529,14 @@ function UserForm({
             <input className="field" type="tel" value={f.phone} onChange={set('phone')} />
           </label>
           <label className="label">
-            E-mail
-            <input className="field" type="email" value={f.email} onChange={set('email')} />
+            E-mail{f.role === 'owner' ? ' (sem chodia prehľady)' : ''}
+            <input
+              className="field"
+              type="email"
+              required={f.role === 'owner'}
+              value={f.email}
+              onChange={set('email')}
+            />
           </label>
         </div>
         <label className="label">

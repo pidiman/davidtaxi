@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { DISPATCH, requireRole } from '../auth.js';
+import { ALL, DISPATCH, requireRole } from '../auth.js';
 import { db } from '../db/index.js';
 import { pushSubscriptions } from '../db/schema.js';
 import { env } from '../env.js';
@@ -115,22 +115,18 @@ export async function miscRoutes(app: FastifyInstance) {
     return data.map((d) => ({ label: d.display_name, lat: Number(d.lat), lng: Number(d.lon) }));
   });
 
-  app.post(
-    '/api/push/subscribe',
-    { preHandler: requireRole('admin', 'dispatcher', 'driver') },
-    async (req) => {
-      const b = (req.body ?? {}) as Record<string, unknown>;
-      const keys = (b.keys ?? {}) as Record<string, unknown>;
-      const endpoint = str(b, 'endpoint')!;
-      if (!endpoint.startsWith('https://')) throw new HttpError(400, 'Neplatný endpoint');
-      await db
-        .insert(pushSubscriptions)
-        .values({ userId: req.user.id, endpoint, p256dh: str(keys, 'p256dh')!, auth: str(keys, 'auth')! })
-        .onConflictDoUpdate({
-          target: pushSubscriptions.endpoint,
-          set: { userId: req.user.id, p256dh: str(keys, 'p256dh')!, auth: str(keys, 'auth')! },
-        });
-      return { ok: true };
-    },
-  );
+  app.post('/api/push/subscribe', { preHandler: requireRole(...ALL) }, async (req) => {
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const keys = (b.keys ?? {}) as Record<string, unknown>;
+    const endpoint = str(b, 'endpoint')!;
+    if (!endpoint.startsWith('https://')) throw new HttpError(400, 'Neplatný endpoint');
+    await db
+      .insert(pushSubscriptions)
+      .values({ userId: req.user.id, endpoint, p256dh: str(keys, 'p256dh')!, auth: str(keys, 'auth')! })
+      .onConflictDoUpdate({
+        target: pushSubscriptions.endpoint,
+        set: { userId: req.user.id, p256dh: str(keys, 'p256dh')!, auth: str(keys, 'auth')! },
+      });
+    return { ok: true };
+  });
 }

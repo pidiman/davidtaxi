@@ -2,13 +2,13 @@ import { existsSync } from 'node:fs';
 import fastifyStatic from '@fastify/static';
 import bcrypt from 'bcryptjs';
 import { count } from 'drizzle-orm';
-import Fastify from 'fastify';
+import Fastify, { LogController } from 'fastify';
 import { registerAuth } from './auth.js';
 import { db, runMigrations } from './db/index.js';
 import { users } from './db/schema.js';
 import { env } from './env.js';
 import { backfillEstimates } from './estimate.js';
-import { initLog } from './log.js';
+import { initLog, record, startLogRetention } from './log.js';
 import { pushEnabled } from './push.js';
 import { attachRealtime } from './realtime.js';
 import { adminRoutes } from './routes/admin.js';
@@ -22,7 +22,7 @@ const app = Fastify({
   logger: { level: process.env.LOG_LEVEL ?? 'info' },
   trustProxy: true,
   // vlastný jeden riadok na request (nižšie) namiesto dvoch defaultných
-  disableRequestLogging: true,
+  logController: new LogController({ disableRequestLogging: true }),
 });
 initLog(app.log);
 
@@ -43,6 +43,7 @@ app.setErrorHandler((err, req, reply) => {
     return reply.code(status).send({ error: (err as Error).message });
   }
   req.log.error(err);
+  req.errorMsg = (err as Error).message;
   return reply.code(500).send({ error: 'Interná chyba servera' });
 });
 
@@ -69,9 +70,9 @@ app.addHook('onResponse', async (req, reply) => {
     ...(req.errorMsg ? { reason: req.errorMsg } : {}),
   };
   const msg = `${req.method} ${url} → ${status}${req.errorMsg ? ` (${req.errorMsg})` : ''}`;
-  if (status >= 500) req.log.error(line, msg);
-  else if (status >= 400) req.log.warn(line, msg);
-  else req.log.debug(line, msg);
+  if (status < 400) return req.log.debug(line, msg);
+  if (url === '/api/auth/login' && status === 401) return; // zapísané ako auth.failed
+  record(status >= 500 ? 'error' : 'warn', status >= 500 ? 'http.error' : 'http.rejected', msg, line);
 });
 
 await registerAuth(app);
@@ -124,17 +125,16 @@ await runMigrations();
 await seedAdmin();
 attachRealtime(app);
 startAssignReminders();
+startLogRetention();
 await app.listen({ host: '0.0.0.0', port: env.port });
 backfillEstimates((m) => app.log.info(m)).catch((e) => app.log.warn({ err: e }, 'backfill odhadov zlyhal'));
-if (!pushEnabled) app.log.warn({ evt: 'push.disabled' }, 'Chýbajú VAPID kľúče – push notifikácie sú vypnuté');
-app.log.info(
-  { evt: 'server.start', port: env.port, logLevel: app.log.level },
-  `Server beží na porte ${env.port}`,
-);
+if (!pushEnabled) record('warn', 'push.disabled', 'Chýbajú VAPID kľúče – push notifikácie sú vypnuté');
+record('info', 'server.start', `Server naštartovaný (port ${env.port})`, { port: env.port });
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, async () => {
-    app.log.info({ evt: 'server.stop', signal: sig }, 'Server sa vypína');
+    record('info', 'server.stop', `Server sa vypína (${sig})`, { signal: sig });
+    await new Promise((r) => setTimeout(r, 200)); // nech sa záznam stihne zapísať
     await app.close();
     process.exit(0);
   });

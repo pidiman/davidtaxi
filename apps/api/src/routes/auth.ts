@@ -1,10 +1,10 @@
 import bcrypt from 'bcryptjs';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { requireRole } from '../auth.js';
+import { ALL, requireRole } from '../auth.js';
 import { db } from '../db/index.js';
 import { users } from '../db/schema.js';
-import { audit, warn } from '../log.js';
+import { audit, roleSk, warn } from '../log.js';
 import { str } from '../util.js';
 import { publicUser } from './admin.js';
 
@@ -37,12 +37,16 @@ export async function authRoutes(app: FastifyInstance) {
       return reply.code(401).send({ error: 'Nesprávne meno alebo heslo' });
     }
     failures.delete(ip);
-    audit('auth.login', `Prihlásený ${u.name} (${u.role}) z ${ip}`, { userId: u.id, role: u.role, ip });
+    audit('auth.login', `Prihlásený ${u.name} (${roleSk(u.role)}) z ${ip}`, {
+      userId: u.id,
+      role: u.role,
+      ip,
+    });
     const token = app.jwt.sign({ id: u.id, role: u.role, name: u.name });
     return { token, user: publicUser(u) };
   });
 
-  app.get('/api/auth/me', { preHandler: requireRole('admin', 'dispatcher', 'driver') }, async (req) => {
+  app.get('/api/auth/me', { preHandler: requireRole(...ALL) }, async (req) => {
     const [u] = await db.select().from(users).where(eq(users.id, req.user.id));
     return publicUser(u);
   });

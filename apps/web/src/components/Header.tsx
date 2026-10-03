@@ -1,8 +1,7 @@
 import { NavLink } from 'react-router';
+import { isAdmin, ROLE_LABEL } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { TaxiIcon, Wordmark } from './Brand';
-
-const ROLE_LABEL = { admin: 'Admin', dispatcher: 'Dispečer', driver: 'Vodič' } as const;
 
 export function Header({ connected }: { connected?: boolean }) {
   const { user, logout } = useAuth();
@@ -37,9 +36,9 @@ export function Header({ connected }: { connected?: boolean }) {
         <NavLink to="/history" className={link}>
           História jázd
         </NavLink>
-        {user.role === 'admin' && (
+        {isAdmin(user.role) && (
           <NavLink to="/admin" className={link}>
-            Používatelia a autá
+            Admin
           </NavLink>
         )}
       </nav>

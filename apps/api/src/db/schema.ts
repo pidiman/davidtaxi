@@ -5,6 +5,7 @@ import {
   doublePrecision,
   index,
   integer,
+  jsonb,
   numeric,
   pgEnum,
   pgTable,
@@ -15,7 +16,8 @@ import {
 
 const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => 'bytea' });
 
-export const roleEnum = pgEnum('role', ['admin', 'dispatcher', 'driver']);
+// owner = majiteľ: rovnaké práva ako admin + dostáva prevádzkové info (napr. e-maily)
+export const roleEnum = pgEnum('role', ['admin', 'dispatcher', 'driver', 'owner']);
 export const driverStatusEnum = pgEnum('driver_status', ['offline', 'available', 'busy', 'break']);
 export const rideStatusEnum = pgEnum('ride_status', [
   'new', // čaká na priradenie
@@ -185,3 +187,20 @@ export const shifts = pgTable(
 );
 
 export type Shift = typeof shifts.$inferSelect;
+
+// ---------------- Log udalostí (zobrazuje sa v Admin → Logy) ----------------
+export const logLevelEnum = pgEnum('log_level', ['info', 'warn', 'error']);
+
+export const auditLog = pgTable(
+  'audit_log',
+  {
+    id: serial('id').primaryKey(),
+    at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+    level: logLevelEnum('level').notNull(),
+    evt: text('evt').notNull(),
+    msg: text('msg').notNull(),
+    userId: integer('user_id').references(() => users.id, { onDelete: 'set null' }),
+    fields: jsonb('fields').$type<Record<string, unknown>>(),
+  },
+  (t) => [index('audit_log_at_idx').on(t.at), index('audit_log_evt_idx').on(t.evt, t.at)],
+);
