@@ -54,7 +54,8 @@ app.setErrorHandler((err, req, reply) => {
  */
 const QUIET = ['/api/driver/location', '/api/health'];
 app.addHook('onResponse', async (req, reply) => {
-  const url = req.url;
+  // bez query (?q=adresa, ?lat=…) – adresy a súradnice zákazníkov nepatria do logov
+  const url = req.url.split('?')[0];
   const status = reply.statusCode;
   const quiet = !url.startsWith('/api/') || QUIET.some((p) => url.startsWith(p));
   if (quiet && status < 500) return;

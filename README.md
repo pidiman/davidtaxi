@@ -166,7 +166,7 @@ Každý riadok je JSON (`level` 30 = info, 40 = warn, 50 = error), čitateľný 
 - **Biznis udalosti (info):** prihlásenie, `ride.*` (created, assigned, accepted, rejected, arrived, started, completed, cancelled, street, returned, reminder), `shift.*` (started, ended, takeover, km_backfill, edited, ended_by_dispatch), `schedule.*`, `user.*`, `vehicle.*`, pripojenie/odpojenie socketu. Mená a adresy zákazníkov sa nelogujú – len ID jazdy.
 - **Varovania (warn):** neúspešné prihlásenie, zamietnuté requesty 4xx s dôvodom, nedoručený push (vodič nemá povolené notifikácie / odber vypršal), výpadok OSRM alebo geokódera.
 - **Chyby (error):** 5xx so stack trace.
-- GPS polohy a health check sa nelogujú. Úspešné requesty len pri `LOG_LEVEL=debug` (v `.env`).
+- GPS polohy a health check sa nelogujú. URL sa logujú bez query (`?q=adresa`, `?lat=…`), takže adresy ani súradnice zákazníkov v logoch nie sú. Úspešné requesty len pri `LOG_LEVEL=debug` (v `.env`).
 - Rotácia: max 5 × 10 MB na kontajner (`docker-compose.yml`, `x-logging`).
 
 ## Lokálny vývoj na Macu (bez deployu)
