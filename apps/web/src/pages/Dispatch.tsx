@@ -8,6 +8,7 @@ import {
   type PickTarget,
   type RideFocus,
   STUPAVA,
+  type TrackedRide,
 } from '../components/FleetMap';
 import { Header } from '../components/Header';
 import {
@@ -73,6 +74,9 @@ export function Dispatch() {
   const mapRef = useRef<HTMLDivElement>(null);
   const [focus, setFocus] = useState<MapFocus | null>(null);
   const [rideFocus, setRideFocus] = useState<RideFocus | null>(null);
+  const [trackedId, setTrackedId] = useState<number | null>(null);
+  const [trackedRoute, setTrackedRoute] = useState<[number, number][] | null>(null);
+  const [trackSeq, setTrackSeq] = useState(0);
 
   /** Výber objednávky zo zoznamu: mapa sa posunie na bod A len ak nie je viditeľný. */
   function selectRideFromList(r: Ride) {
@@ -216,6 +220,66 @@ export function Dispatch() {
 
   const pending = rides.filter((r) => r.status === 'new' || r.status === 'assigned');
   const active = rides.filter((r) => ACTIVE.includes(r.status));
+  const trackedRide = active.find((r) => r.id === trackedId) ?? null;
+
+  // jazda skončila / bola zrušená → prestaň ju sledovať
+  useEffect(() => {
+    if (trackedId !== null && !trackedRide) {
+      setTrackedId(null);
+      setTrackedRoute(null);
+    }
+  }, [trackedId, trackedRide]);
+
+  // cestná trasa A→B (OSRM); načíta sa znova, keď jazda dostane súradnice (geokódovanie na pozadí)
+  const tA =
+    trackedRide && trackedRide.pickupLat !== null
+      ? `${trackedRide.pickupLat},${trackedRide.pickupLng}`
+      : null;
+  const tB =
+    trackedRide && trackedRide.dropoffLat !== null
+      ? `${trackedRide.dropoffLat},${trackedRide.dropoffLng}`
+      : null;
+  useEffect(() => {
+    setTrackedRoute(null);
+    if (!tA || !tB) return;
+    let alive = true;
+    api<{ geometry: [number, number][] }>(`/api/route?from=${tA}&to=${tB}`)
+      .then((r) => alive && setTrackedRoute(r.geometry))
+      .catch(() => alive && setTrackedRoute(null));
+    return () => {
+      alive = false;
+    };
+  }, [tA, tB]);
+
+  const tracked: TrackedRide | null = useMemo(
+    () =>
+      trackedRide
+        ? {
+            id: trackedRide.id,
+            a: trackedRide.pickupLat !== null ? [trackedRide.pickupLat, trackedRide.pickupLng!] : null,
+            b: trackedRide.dropoffLat !== null ? [trackedRide.dropoffLat, trackedRide.dropoffLng!] : null,
+            route: trackedRoute,
+            driverId: trackedRide.driverId,
+            toPickup: trackedRide.status === 'accepted' || trackedRide.status === 'arrived',
+            label: trackedRide.customerName,
+            seq: trackSeq,
+          }
+        : null,
+    [trackedRide, trackedRoute, trackSeq],
+  );
+
+  function trackRide(r: Ride) {
+    if (trackedId === r.id) {
+      setTrackedId(null);
+      return;
+    }
+    setTrackedId(r.id);
+    setTrackSeq((n) => n + 1);
+    if (r.driverId) {
+      setDetailId(r.driverId);
+      setDetailRefresh((n) => n + 1);
+    }
+  }
   const selected = rides.find((r) => r.id === selectedId) ?? null;
   const online = drivers.filter((d) => d.status !== 'offline');
 
@@ -489,6 +553,32 @@ export function Dispatch() {
               </form>
             </div>
             {mapSearchErr && <div className="px-4 pb-2 text-sm text-red-300">{mapSearchErr}</div>}
+            {trackedRide && (
+              <div className="mx-4 mb-3 flex items-center gap-3 rounded-xl border border-taxi/60 bg-taxi-dim px-3 py-2 text-sm text-[#f2e3b0]">
+                <span className="font-bold text-taxi">Trasa</span>
+                <span className="min-w-0 flex-1 truncate">
+                  {trackedRide.customerName} · auto {trackedRide.vehicleCallsign ?? '?'} ·{' '}
+                  {trackedRide.pickupAddress} → {trackedRide.dropoffAddress}
+                  {trackedRide.estimateKm !== null && ` · ~${fmtEstimate(trackedRide.estimateKm)}`}
+                  {!tA || !tB ? ' · body A/B ešte nemajú súradnice' : ''}
+                </span>
+                <button
+                  type="button"
+                  className="text-sm font-semibold text-taxi hover:text-taxi-hover"
+                  onClick={() => setTrackSeq((n) => n + 1)}
+                >
+                  Vycentrovať
+                </button>
+                <button
+                  type="button"
+                  aria-label="Skryť trasu"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-lg text-muted hover:bg-raised hover:text-text"
+                  onClick={() => setTrackedId(null)}
+                >
+                  ×
+                </button>
+              </div>
+            )}
             <FleetMap
               drivers={drivers}
               selected={selected}
@@ -513,6 +603,7 @@ export function Dispatch() {
               pending={pending}
               onSelectRide={setSelectedId}
               rideFocus={rideFocus}
+              tracked={tracked}
             />
             <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 py-3 text-[13px] text-muted">
               <Legend color="#FFC400" label="voľný" />
@@ -523,7 +614,10 @@ export function Dispatch() {
           </div>
 
           <div className="card">
-            <h2 className="h2 mb-3">Aktívne jazdy</h2>
+            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="h2">Aktívne jazdy</h2>
+              <span className="text-xs text-muted">klik na jazdu = trasa a auto na mape</span>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[760px] border-collapse text-sm">
                 <thead>
@@ -554,13 +648,50 @@ export function Dispatch() {
                     </tr>
                   )}
                   {active.map((r) => (
-                    <tr key={r.id} className="border-t border-[#2a2a2a]">
-                      <td className="px-2.5 py-2.5 font-bold">{r.vehicleCallsign ?? '–'}</td>
+                    <tr
+                      key={r.id}
+                      onClick={() => trackRide(r)}
+                      className={`cursor-pointer border-t border-[#2a2a2a] ${r.id === trackedId ? 'bg-taxi-dim' : 'hover:bg-raised'}`}
+                    >
+                      <td className="px-2.5 py-2.5 font-bold">
+                        <button
+                          type="button"
+                          aria-pressed={r.id === trackedId}
+                          aria-label={`Zobraziť trasu jazdy ${r.customerName} na mape`}
+                          title="Zobraziť trasu a auto na mape"
+                          className={`flex items-center gap-1.5 ${r.id === trackedId ? 'text-taxi' : ''}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            trackRide(r);
+                          }}
+                        >
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <circle cx="6" cy="19" r="2.5" />
+                            <circle cx="18" cy="5" r="2.5" />
+                            <path d="M8.5 19H16a3.5 3.5 0 0 0 0-7H8a3.5 3.5 0 0 1 0-7h7.5" />
+                          </svg>
+                          {r.vehicleCallsign ?? '–'}
+                        </button>
+                      </td>
                       <td className="px-2.5 py-2.5">{r.driverName}</td>
                       <td className="px-2.5 py-2.5">
                         {r.customerName}
                         {r.customerPhone && (
-                          <a className="ml-2 text-xs" href={telHref(r.customerPhone)}>
+                          <a
+                            className="ml-2 text-xs"
+                            href={telHref(r.customerPhone)}
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             {r.customerPhone}
                           </a>
                         )}
@@ -570,7 +701,7 @@ export function Dispatch() {
                       </td>
                       <td className="px-2.5 py-2.5">
                         <span
-                          className={`rounded-full px-2 py-0.5 text-xs ${r.status === 'arrived' ? 'bg-[#3a3115] text-taxi-hover' : 'bg-raised'}`}
+                          className={`rounded-full px-2 py-0.5 text-xs whitespace-nowrap ${r.status === 'arrived' ? 'bg-[#3a3115] text-taxi-hover' : 'bg-raised'}`}
                         >
                           {STATUS_LABEL[r.status]}
                         </span>
@@ -586,7 +717,10 @@ export function Dispatch() {
                         <button
                           type="button"
                           className="text-xs text-muted hover:text-text"
-                          onClick={() => cancel(r)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            cancel(r);
+                          }}
                         >
                           Zrušiť
                         </button>

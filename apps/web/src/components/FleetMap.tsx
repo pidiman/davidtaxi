@@ -43,6 +43,32 @@ const draftIcon = (letter: PickTarget) =>
 
 export type RideFocus = { lat: number; lng: number; seq: number };
 
+/** Sledovaná aktívna jazda: trasa A→B (OSRM) + auto, ktoré ju vezie. */
+export type TrackedRide = {
+  id: number;
+  a: Pt | null;
+  b: Pt | null;
+  route: Pt[] | null;
+  driverId: number | null;
+  toPickup: boolean; // vodič ešte ide k zákazníkovi → čiara auto→A
+  label: string;
+  seq: number;
+};
+
+/** Jednorazové priblíženie na trasu a auto po kliknutí na jazdu (nie pri každej GPS polohe). */
+function FitTracked({ tracked, car }: { tracked: TrackedRide | null; car: Pt | null }) {
+  const map = useMap();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: len pri novom výbere (seq), nie pri pohybe auta
+  useEffect(() => {
+    if (!tracked) return;
+    const pts = [...(tracked.route ?? []), tracked.a, tracked.b, car].filter(Boolean) as Pt[];
+    if (pts.length === 1) map.flyTo(pts[0], Math.max(map.getZoom(), 14), { duration: 0.6 });
+    else if (pts.length > 1)
+      map.flyToBounds(L.latLngBounds(pts), { padding: [50, 50], maxZoom: 16, duration: 0.7 });
+  }, [tracked?.seq, tracked?.route, map]);
+  return null;
+}
+
 /**
  * Presun na bod A objednávky – LEN keď ho dispečer výslovne vyžiada (klik v zozname).
  * Ak je bod už viditeľný, mapa sa nehýbe; inak sa len posunie (zoom ostáva).
@@ -101,12 +127,14 @@ export function FleetMap({
   pending,
   onSelectRide,
   rideFocus,
+  tracked,
 }: {
   drivers: Driver[];
   selected: Ride | null;
   pending: Ride[];
   onSelectRide: (id: number) => void;
   rideFocus: RideFocus | null;
+  tracked: TrackedRide | null;
   highlightDriverId: number | null;
   labelMode: LabelMode;
   pickTarget: PickTarget | null;
@@ -120,6 +148,10 @@ export function FleetMap({
   const pickup: Pt | null =
     selected?.pickupLat && selected.pickupLng ? [selected.pickupLat, selected.pickupLng] : null;
   const hl = drivers.find((d) => d.id === (highlightDriverId ?? selectedDriverId) && d.lat && d.lng);
+  const trackedCar = tracked?.driverId
+    ? drivers.find((d) => d.id === tracked.driverId && d.lat && d.lng)
+    : undefined;
+  const trackedCarPt: Pt | null = trackedCar ? [trackedCar.lat!, trackedCar.lng!] : null;
 
   return (
     <div className="relative">
@@ -131,8 +163,8 @@ export function FleetMap({
             <Marker
               key={d.id}
               position={[d.lat!, d.lng!]}
-              icon={carIcon(d, labelMode, d.id === selectedDriverId)}
-              zIndexOffset={d.id === selectedDriverId ? 1000 : 700}
+              icon={carIcon(d, labelMode, d.id === selectedDriverId || d.id === tracked?.driverId)}
+              zIndexOffset={d.id === selectedDriverId || d.id === tracked?.driverId ? 1000 : 700}
               eventHandlers={{ click: () => !pickTarget && onSelectDriver(d.id) }}
               keyboard
               title={`${d.vehicleCallsign ?? '?'} · ${d.name}`}
@@ -159,6 +191,34 @@ export function FleetMap({
             pathOptions={{ color: '#FFC400', weight: 3, dashArray: '8 6' }}
           />
         )}
+        {tracked?.route && (
+          <>
+            <Polyline positions={tracked.route} pathOptions={{ color: '#000', weight: 9, opacity: 0.5 }} />
+            <Polyline
+              positions={tracked.route}
+              pathOptions={{ color: '#FFC400', weight: 5, opacity: 0.95 }}
+            />
+          </>
+        )}
+        {tracked && !tracked.route && tracked.a && tracked.b && (
+          <Polyline
+            positions={[tracked.a, tracked.b]}
+            pathOptions={{ color: '#FFC400', weight: 3, dashArray: '6 6' }}
+          />
+        )}
+        {tracked?.toPickup && tracked.a && trackedCarPt && (
+          <Polyline
+            positions={[trackedCarPt, tracked.a]}
+            pathOptions={{ color: '#F2F2F2', weight: 3, dashArray: '8 6' }}
+          />
+        )}
+        {tracked?.a && (
+          <Marker position={tracked.a} icon={draftIcon('A')} interactive={false} zIndexOffset={800} />
+        )}
+        {tracked?.b && (
+          <Marker position={tracked.b} icon={draftIcon('B')} interactive={false} zIndexOffset={800} />
+        )}
+        <FitTracked tracked={tracked} car={trackedCarPt} />
         {draftA && <Marker position={draftA} icon={draftIcon('A')} interactive={false} />}
         {draftB && <Marker position={draftB} icon={draftIcon('B')} interactive={false} />}
         {draftA && draftB && (
