@@ -35,6 +35,9 @@ const STATUS_ORDER: Record<DriverStatus, number> = { available: 0, busy: 1, brea
 
 type Config = { priceMin: number; pricePerKm: number };
 
+// Súhrnné dlaždice (čakajúce, aktívne, vodiči online, voľní) – dočasne skryté, pripravené na neskoršie použitie
+const SHOW_KPI = false;
+
 const LABEL_KEY = 'dt_map_label';
 function readLabelMode(): LabelMode {
   try {
@@ -342,12 +345,14 @@ export function Dispatch() {
     <div className="min-h-screen bg-ink text-[15px]">
       <Header connected={connected} />
 
-      <section className="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3 px-6 pt-4">
-        <Kpi label="Čakajúce objednávky" value={pending.length} accent />
-        <Kpi label="Aktívne jazdy" value={active.length} />
-        <Kpi label="Vodiči online" value={`${online.length} / ${drivers.length}`} />
-        <Kpi label="Voľní vodiči" value={drivers.filter((d) => d.status === 'available').length} />
-      </section>
+      {SHOW_KPI && (
+        <section className="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3 px-6 pt-4">
+          <Kpi label="Čakajúce objednávky" value={pending.length} accent />
+          <Kpi label="Aktívne jazdy" value={active.length} />
+          <Kpi label="Vodiči online" value={`${online.length} / ${drivers.length}`} />
+          <Kpi label="Voľní vodiči" value={drivers.filter((d) => d.status === 'available').length} />
+        </section>
+      )}
 
       <main className="flex flex-wrap items-start gap-4 px-6 pt-4 pb-6">
         {/* ---------- ľavý stĺpec: nová objednávka + čakajúce ---------- */}
