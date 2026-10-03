@@ -7,6 +7,7 @@ import { Dispatch } from './pages/Dispatch';
 import { Driver } from './pages/Driver';
 import { History } from './pages/History';
 import { Login } from './pages/Login';
+import { Schedule } from './pages/Schedule';
 
 function Guard({ roles, children }: { roles: Role[]; children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -42,6 +43,14 @@ export function App() {
             element={
               <Guard roles={['admin', 'dispatcher']}>
                 <History />
+              </Guard>
+            }
+          />
+          <Route
+            path="/schedule"
+            element={
+              <Guard roles={['admin', 'dispatcher']}>
+                <Schedule />
               </Guard>
             }
           />

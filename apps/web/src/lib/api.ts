@@ -40,8 +40,73 @@ export type Vehicle = {
   insuranceUntil: string | null;
   note: string | null;
   active: boolean;
+  photoUrl: string | null;
   rideCount?: number;
+  shiftCount?: number;
 };
+
+export type KmSource = 'driver' | 'next_driver' | 'admin';
+
+export type Shift = {
+  id: number;
+  driverId: number;
+  driverName: string;
+  vehicleId: number;
+  vehicleCallsign: string;
+  vehiclePlate: string;
+  vehicleModel: string;
+  vehiclePhotoUrl: string | null;
+  scheduleId: number | null;
+  startedAt: string;
+  endedAt: string | null;
+  startKm: number;
+  endKm: number | null;
+  endKmSource: KmSource | null;
+  note: string | null;
+  rideCount?: number;
+  gpsKm?: number;
+  revenue?: number;
+};
+
+export type Schedule = {
+  id: number;
+  driverId: number;
+  driverName: string;
+  vehicleId: number | null;
+  vehicleCallsign: string | null;
+  vehiclePlate: string | null;
+  startsAt: string;
+  endsAt: string;
+  note: string | null;
+};
+
+export type ShiftCar = {
+  id: number;
+  callsign: string;
+  plate: string;
+  model: string;
+  color: string | null;
+  seats: number;
+  photoUrl: string | null;
+  lastKm: number | null;
+  inUseBy: string | null;
+  scheduled: boolean;
+};
+
+export type DriverShiftInfo = {
+  shift: Shift | null;
+  schedule: {
+    id: number;
+    startsAt: string;
+    endsAt: string;
+    vehicleId: number | null;
+    vehicleCallsign: string | null;
+    note: string | null;
+  } | null;
+  vehicles: ShiftCar[];
+};
+
+export const fmtInt = (n: number) => n.toLocaleString('sk-SK');
 
 export type Driver = {
   id: number;
@@ -100,6 +165,7 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    public data: Record<string, unknown> = {},
   ) {
     super(message);
   }
@@ -120,7 +186,13 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
     tokenStore.clear();
     window.location.href = '/login';
   }
-  if (!res.ok) throw new ApiError(res.status, (data as { error?: string }).error ?? `Chyba ${res.status}`);
+  if (!res.ok) {
+    throw new ApiError(
+      res.status,
+      (data as { error?: string }).error ?? `Chyba ${res.status}`,
+      data as Record<string, unknown>,
+    );
+  }
   return data as T;
 }
 

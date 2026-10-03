@@ -1,6 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { Header } from '../components/Header';
 import { Modal } from '../components/Modal';
+import { CarPhoto } from '../components/ShiftControls';
 import { api, DRIVER_LABEL, type Role, type User, type Vehicle } from '../lib/api';
 import { useAuth } from '../lib/auth';
 
@@ -162,7 +163,7 @@ export function Admin() {
                   <th className="px-2.5 py-2">Meno</th>
                   <th className="px-2.5 py-2">Login</th>
                   <th className="px-2.5 py-2">Telefón</th>
-                  <th className="px-2.5 py-2">Auto</th>
+                  <th className="px-2.5 py-2">V aute (smena)</th>
                   <th className="px-2.5 py-2">Teraz</th>
                   <th className="px-2.5 py-2 text-right">Jazdy</th>
                   <th className="px-2.5 py-2" />
@@ -192,7 +193,7 @@ export function Admin() {
                             <b>{v.callsign}</b> <span className="text-muted">· {v.plate}</span>
                           </span>
                         ) : (
-                          <span className="text-muted">bez auta</span>
+                          <span className="text-muted">mimo smeny</span>
                         )}
                       </td>
                       <td className="px-2.5 py-2.5">{DRIVER_LABEL[u.driverStatus]}</td>
@@ -225,6 +226,7 @@ export function Admin() {
               const assigned = users.filter((u) => u.vehicleId === v.id);
               return (
                 <article key={v.id} className={`card flex flex-col gap-3 ${v.active ? '' : 'opacity-50'}`}>
+                  <CarPhoto url={v.photoUrl} callsign={v.callsign} />
                   <div className="flex items-start gap-3">
                     <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-taxi text-lg font-extrabold text-black">
                       {v.callsign}
@@ -251,7 +253,7 @@ export function Admin() {
                     <ValidityChip label="PZP" date={v.insuranceUntil} />
                   </div>
                   <div className="text-sm text-muted">
-                    Vodiči: {assigned.length ? assigned.map((u) => u.name).join(', ') : 'nikto'}
+                    Teraz jazdí: {assigned.length ? assigned.map((u) => u.name).join(', ') : 'nikto'}
                   </div>
                   {v.note && <div className="rounded-lg bg-ink px-3 py-2 text-sm text-soft">{v.note}</div>}
                   <div className="mt-auto flex flex-wrap gap-2 border-t border-line pt-3">
@@ -275,7 +277,7 @@ export function Admin() {
                     >
                       {v.active ? 'Vyradiť' : 'Vrátiť do prevádzky'}
                     </button>
-                    {(v.rideCount ?? 0) === 0 && (
+                    {(v.rideCount ?? 0) === 0 && (v.shiftCount ?? 0) === 0 && (
                       <button
                         type="button"
                         className="ml-auto px-2 py-1.5 text-sm text-red-300 hover:text-red-200"
@@ -346,7 +348,6 @@ export function Admin() {
       {editUser && (
         <UserForm
           initial={editUser}
-          vehicles={vehicles}
           isSelf={editUser.id === me?.id}
           onClose={() => setEditUser(null)}
           onSave={async (body) => {
@@ -365,12 +366,16 @@ export function Admin() {
         <VehicleForm
           initial={editVehicle}
           onClose={() => setEditVehicle(null)}
-          onSave={async (body) => {
+          onSave={async (body, photo) => {
             const ok = await run(
-              () =>
-                editVehicle.id
-                  ? api(`/api/vehicles/${editVehicle.id}`, { method: 'PATCH', body })
-                  : api('/api/vehicles', { body }),
+              async () => {
+                const saved = editVehicle.id
+                  ? await api<Vehicle>(`/api/vehicles/${editVehicle.id}`, { method: 'PATCH', body })
+                  : await api<Vehicle>('/api/vehicles', { body });
+                if (photo === 'remove') await api(`/api/vehicles/${saved.id}/photo`, { method: 'DELETE' });
+                else if (photo)
+                  await api(`/api/vehicles/${saved.id}/photo`, { method: 'PUT', body: { dataUrl: photo } });
+              },
               editVehicle.id ? 'Auto uložené' : 'Auto pridané',
             );
             if (ok) setEditVehicle(null);
@@ -427,13 +432,11 @@ function RowActions({
 // ---------------- formulár používateľa ----------------
 function UserForm({
   initial,
-  vehicles,
   isSelf,
   onClose,
   onSave,
 }: {
   initial: Partial<User>;
-  vehicles: Vehicle[];
   isSelf: boolean;
   onClose: () => void;
   onSave: (body: Record<string, unknown>) => Promise<void>;
@@ -446,7 +449,6 @@ function UserForm({
     password: '',
     phone: initial.phone ?? '',
     email: initial.email ?? '',
-    vehicleId: initial.vehicleId ? String(initial.vehicleId) : '',
     note: initial.note ?? '',
   });
   const [saving, setSaving] = useState(false);
@@ -463,7 +465,6 @@ function UserForm({
       phone: f.phone || null,
       email: f.email || null,
       note: f.note || null,
-      vehicleId: f.role === 'driver' && f.vehicleId ? Number(f.vehicleId) : null,
     };
     if (f.password) body.password = f.password;
     if (isSelf) delete body.role;
@@ -522,21 +523,6 @@ function UserForm({
             <input className="field" type="email" value={f.email} onChange={set('email')} />
           </label>
         </div>
-        {f.role === 'driver' && (
-          <label className="label">
-            Auto
-            <select className="field" value={f.vehicleId} onChange={set('vehicleId')}>
-              <option value="">— bez auta —</option>
-              {vehicles
-                .filter((v) => v.active || String(v.id) === f.vehicleId)
-                .map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.callsign} · {v.model} · {v.plate}
-                  </option>
-                ))}
-            </select>
-          </label>
-        )}
         <label className="label">
           Poznámka
           <textarea className="field resize-y" rows={2} value={f.note} onChange={set('note')} />
@@ -562,9 +548,12 @@ function VehicleForm({
 }: {
   initial: Partial<Vehicle>;
   onClose: () => void;
-  onSave: (body: Record<string, unknown>) => Promise<void>;
+  onSave: (body: Record<string, unknown>, photo: string | 'remove' | null) => Promise<void>;
 }) {
   const isNew = !initial.id;
+  const [photo, setPhoto] = useState<string | 'remove' | null>(null);
+  const [photoErr, setPhotoErr] = useState('');
+  const preview = photo === 'remove' ? null : (photo ?? initial.photoUrl ?? null);
   const s = (v: string | number | null | undefined) => (v === null || v === undefined ? '' : String(v));
   const [f, setF] = useState({
     callsign: s(initial.callsign),
@@ -592,13 +581,49 @@ function VehicleForm({
     for (const [k, v] of Object.entries(f)) body[k] = v === '' ? null : v;
     body.year = f.year ? Number(f.year) : null;
     body.seats = f.seats ? Number(f.seats) : 4;
-    await onSave(body);
+    await onSave(body, photo);
     setSaving(false);
   }
 
   return (
     <Modal title={isNew ? 'Nové auto' : `Upraviť auto ${initial.callsign}`} onClose={onClose}>
       <form onSubmit={submit} className="flex flex-col gap-3">
+        <div className="flex items-center gap-4">
+          <div className="w-40 shrink-0">
+            <CarPhoto url={preview} callsign={f.callsign || '?'} />
+          </div>
+          <div className="flex flex-col items-start gap-2 text-sm">
+            <label className="btn-outline cursor-pointer px-3 py-2">
+              {preview ? 'Zmeniť fotku' : 'Nahrať fotku'}
+              <input
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setPhotoErr('');
+                  try {
+                    setPhoto(await resizeImage(file));
+                  } catch {
+                    setPhotoErr('Fotku sa nepodarilo načítať');
+                  }
+                }}
+              />
+            </label>
+            {preview && (
+              <button
+                type="button"
+                className="text-red-300 hover:text-red-200"
+                onClick={() => setPhoto('remove')}
+              >
+                Odstrániť fotku
+              </button>
+            )}
+            {photoErr && <span className="text-red-300">{photoErr}</span>}
+            <span className="text-xs text-muted">Zmenší sa automaticky na max. 1280 px.</span>
+          </div>
+        </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <label className="label">
             Číslo auta
@@ -702,4 +727,16 @@ function VehicleForm({
       </form>
     </Modal>
   );
+}
+
+/** Zmenší fotku v prehliadači (max 1280 px, JPEG 82 %) – do DB ide ~150–300 kB. */
+async function resizeImage(file: File, max = 1280): Promise<string> {
+  const bmp = await createImageBitmap(file);
+  const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(bmp.width * scale);
+  canvas.height = Math.round(bmp.height * scale);
+  canvas.getContext('2d')?.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+  bmp.close();
+  return canvas.toDataURL('image/jpeg', 0.82);
 }

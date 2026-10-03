@@ -12,6 +12,7 @@ import { adminRoutes } from './routes/admin.js';
 import { authRoutes } from './routes/auth.js';
 import { miscRoutes } from './routes/misc.js';
 import { rideRoutes, startAssignReminders } from './routes/rides.js';
+import { shiftRoutes } from './routes/shifts.js';
 import { HttpError } from './util.js';
 
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' }, trustProxy: true });
@@ -28,6 +29,7 @@ await registerAuth(app);
 await app.register(authRoutes);
 await app.register(adminRoutes);
 await app.register(rideRoutes);
+await app.register(shiftRoutes);
 await app.register(miscRoutes);
 
 // Frontend (dashboard + PWA) – rovnaký origin ako API, takže netreba CORS

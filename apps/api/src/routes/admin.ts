@@ -1,13 +1,22 @@
 import bcrypt from 'bcryptjs';
-import { and, asc, count, eq, ne, or } from 'drizzle-orm';
+import { and, asc, count, eq, getTableColumns, ne, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { DISPATCH, requireRole } from '../auth.js';
 import { db } from '../db/index.js';
-import { type Role, rides, type User, users, vehicles } from '../db/schema.js';
+import { type Role, rides, shifts, type User, users, type Vehicle, vehicles } from '../db/schema.js';
 import { HttpError, num, str } from '../util.js';
+import { photoUrl } from './shifts.js';
 
 const ROLES: Role[] = ['admin', 'dispatcher', 'driver'];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// všetky stĺpce auta okrem samotnej fotky (bytea)
+const { photo: _photo, ...vehiclePublicCols } = getTableColumns(vehicles);
+type VehicleRow = Omit<Vehicle, 'photo'>;
+function publicVehicle(v: VehicleRow) {
+  const { photoMime: _m, ...rest } = v;
+  return { ...rest, photoUrl: photoUrl(v) };
+}
 
 export function publicUser(u: User) {
   const { passwordHash: _omit, ...rest } = u;
@@ -107,7 +116,6 @@ export async function adminRoutes(app: FastifyInstance) {
         email: str(b, 'email', false) ?? null,
         note: str(b, 'note', false) ?? null,
         role,
-        vehicleId: role === 'driver' ? (num(b, 'vehicleId', false) ?? null) : null,
       })
       .returning();
     return publicUser(u);
@@ -126,12 +134,11 @@ export async function adminRoutes(app: FastifyInstance) {
     if ('email' in b) patch.email = str(b, 'email', false) ?? null;
     if ('note' in b) patch.note = str(b, 'note', false) ?? null;
     if ('active' in b) patch.active = Boolean(b.active);
-    if ('vehicleId' in b) patch.vehicleId = num(b, 'vehicleId', false) ?? null;
+    // auto sa vodičovi nepriraďuje tu – vyberá si ho sám pri začatí smeny
     if ('role' in b) {
       const role = str(b, 'role') as Role;
       if (!ROLES.includes(role)) throw new HttpError(400, 'Neplatná rola');
       patch.role = role;
-      if (role !== 'driver') patch.vehicleId = null;
     }
     if ('password' in b && b.password) {
       const p = str(b, 'password')!;
@@ -154,8 +161,9 @@ export async function adminRoutes(app: FastifyInstance) {
       .select({ n: count() })
       .from(rides)
       .where(or(eq(rides.driverId, id), eq(rides.createdById, id)));
-    if (Number(n) > 0) {
-      throw new HttpError(409, 'Používateľ má jazdy v histórii – namiesto zmazania ho deaktivuj');
+    const [{ m }] = await db.select({ m: count() }).from(shifts).where(eq(shifts.driverId, id));
+    if (Number(n) + Number(m) > 0) {
+      throw new HttpError(409, 'Používateľ má jazdy alebo smeny v histórii – namiesto zmazania ho deaktivuj');
     }
     const del = await db.delete(users).where(eq(users.id, id)).returning({ id: users.id });
     if (!del.length) throw new HttpError(404, 'Používateľ neexistuje');
@@ -164,10 +172,59 @@ export async function adminRoutes(app: FastifyInstance) {
 
   // ================= Autá =================
   app.get('/api/vehicles', { preHandler: requireRole(...DISPATCH) }, async () => {
-    const rows = await db.select().from(vehicles).orderBy(asc(vehicles.callsign));
+    const rows = await db.select(vehiclePublicCols).from(vehicles).orderBy(asc(vehicles.callsign));
     const counts = await db.select({ id: rides.vehicleId, n: count() }).from(rides).groupBy(rides.vehicleId);
     const byId = new Map(counts.map((c) => [c.id, Number(c.n)]));
-    return rows.map((v) => ({ ...v, rideCount: byId.get(v.id) ?? 0 }));
+    const sc = await db.select({ id: shifts.vehicleId, n: count() }).from(shifts).groupBy(shifts.vehicleId);
+    const shiftsById = new Map(sc.map((c) => [c.id, Number(c.n)]));
+    return rows.map((v) => ({
+      ...publicVehicle(v),
+      rideCount: byId.get(v.id) ?? 0,
+      shiftCount: shiftsById.get(v.id) ?? 0,
+    }));
+  });
+
+  // ---- fotka auta: prehliadač ju zmenší a pošle ako data URL (JPEG/WebP/PNG, max ~4 MB) ----
+  app.put<{ Params: { id: string } }>(
+    '/api/vehicles/:id/photo',
+    { ...admin, bodyLimit: 6 * 1024 * 1024 },
+    async (req) => {
+      const dataUrl = str((req.body ?? {}) as Body, 'dataUrl')!;
+      const m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(dataUrl);
+      if (!m) throw new HttpError(400, 'Fotka musí byť JPEG, PNG alebo WebP');
+      const buf = Buffer.from(m[2], 'base64');
+      if (buf.length > 4 * 1024 * 1024) throw new HttpError(400, 'Fotka je príliš veľká (max 4 MB)');
+      const [v] = await db
+        .update(vehicles)
+        .set({ photo: buf, photoMime: m[1], photoUpdatedAt: new Date() })
+        .where(eq(vehicles.id, Number(req.params.id)))
+        .returning(vehiclePublicCols);
+      if (!v) throw new HttpError(404, 'Auto neexistuje');
+      return publicVehicle(v);
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>('/api/vehicles/:id/photo', admin, async (req) => {
+    const [v] = await db
+      .update(vehicles)
+      .set({ photo: null, photoMime: null, photoUpdatedAt: null })
+      .where(eq(vehicles.id, Number(req.params.id)))
+      .returning(vehiclePublicCols);
+    if (!v) throw new HttpError(404, 'Auto neexistuje');
+    return publicVehicle(v);
+  });
+
+  // fotka je verejná (načítava ju <img>, ktorý neposiela token); URL obsahuje verziu → dlhá cache
+  app.get<{ Params: { id: string } }>('/api/vehicles/:id/photo', async (req, reply) => {
+    const [v] = await db
+      .select({ photo: vehicles.photo, mime: vehicles.photoMime })
+      .from(vehicles)
+      .where(eq(vehicles.id, Number(req.params.id)));
+    if (!v?.photo) return reply.code(404).send({ error: 'Auto nemá fotku' });
+    return reply
+      .header('Content-Type', v.mime ?? 'image/jpeg')
+      .header('Cache-Control', 'public, max-age=31536000, immutable')
+      .send(v.photo);
   });
 
   app.post('/api/vehicles', admin, async (req) => {
@@ -176,23 +233,24 @@ export async function adminRoutes(app: FastifyInstance) {
     const [v] = await db
       .insert(vehicles)
       .values(fields as typeof vehicles.$inferInsert)
-      .returning();
-    return v;
+      .returning(vehiclePublicCols);
+    return publicVehicle(v);
   });
 
   app.patch<{ Params: { id: string } }>('/api/vehicles/:id', admin, async (req) => {
     const id = Number(req.params.id);
     const fields = vehicleFields((req.body ?? {}) as Body, true);
     if (fields.callsign) await assertUniqueCallsign(fields.callsign, id);
-    const [v] = await db.update(vehicles).set(fields).where(eq(vehicles.id, id)).returning();
+    const [v] = await db.update(vehicles).set(fields).where(eq(vehicles.id, id)).returning(vehiclePublicCols);
     if (!v) throw new HttpError(404, 'Auto neexistuje');
-    return v;
+    return publicVehicle(v);
   });
 
   app.delete<{ Params: { id: string } }>('/api/vehicles/:id', admin, async (req) => {
     const id = Number(req.params.id);
     const [{ n }] = await db.select({ n: count() }).from(rides).where(eq(rides.vehicleId, id));
-    if (Number(n) > 0)
+    const [{ m }] = await db.select({ m: count() }).from(shifts).where(eq(shifts.vehicleId, id));
+    if (Number(n) + Number(m) > 0)
       throw new HttpError(409, 'Auto má jazdy v histórii – namiesto zmazania ho vyraď (deaktivuj)');
     const del = await db.delete(vehicles).where(eq(vehicles.id, id)).returning({ id: vehicles.id });
     if (!del.length) throw new HttpError(404, 'Auto neexistuje');

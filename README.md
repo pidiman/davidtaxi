@@ -4,6 +4,13 @@ Dispečing pre taxislužbu: **admin / dispečer dashboard** + **PWA pre vodičov
 
 - Admin spravuje vodičov, dispečerov a autá (vytvorenie, úprava, deaktivácia, zmazanie). Pri autách eviduje farbu, rok, počet miest, karosériu, palivo, VIN a platnosť STK, EK a PZP s upozornením 30 dní pred koncom.
   - Vodiča alebo auto s jazdami v histórii nemožno zmazať, len deaktivovať, aby história ostala úplná.
+- **Smeny a autá:** autá sú firemné. Pred začiatkom smeny vodič vyberie auto (s fotkou, auto podľa rozpisu je zvýraznené) a zapíše počiatočný stav tachometra. Bez toho nedostane jazdy.
+  - Pri *Ukončiť smenu* zapíše konečný stav km.
+  - Ak smenu zabudne ukončiť, ďalší vodič auto prevezme. Jeho počiatočný stav km sa zapíše ako konečný stav predchádzajúceho vodiča (v knihe smien so štítkom *doplnil ďalší vodič*).
+  - Kým auto vezie zákazníka, prevzatie nie je možné.
+- **Rozpis:** admin aj dispečer plánujú, ktorý vodič jazdí od kedy do kedy a na ktorom aute. Appka hlási kolízie vodiča aj auta a podporuje nočné smeny.
+  - Pod rozpisom je kniha odjazdených smien: počiatočný a konečný stav km, najazdené km, km jázd z GPS, počet jázd a tržba.
+  - Dispečer v knihe smien opraví km alebo ukončí zabudnutú smenu.
 - Dispečer (aj admin) prijíma objednávky, vidí autá na mape naživo a posiela jazdy vodičom.
 - Vodič dostane push notifikáciu, vidí trasu A → B a meno a telefón zákazníka. Jazdu prijme alebo odmietne.
 - **Nová jazda sa nedá prehliadnuť:**

@@ -31,6 +31,9 @@ export function Header({ connected }: { connected?: boolean }) {
         <NavLink to="/dispatch" className={link}>
           Dashboard
         </NavLink>
+        <NavLink to="/schedule" className={link}>
+          Rozpis
+        </NavLink>
         <NavLink to="/history" className={link}>
           História jázd
         </NavLink>

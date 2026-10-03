@@ -3,9 +3,11 @@ import { AddressInput } from '../components/AddressInput';
 import { TaxiIcon, Wordmark } from '../components/Brand';
 import { DriverNav, type NavPos, type NavTarget } from '../components/DriverNav';
 import { IncomingRideAlert } from '../components/IncomingRideAlert';
+import { ShiftBar, ShiftStart } from '../components/ShiftControls';
 import { testRing, unlockAudio } from '../lib/alarm';
 import {
   api,
+  type DriverShiftInfo,
   type DriverStatus,
   type Driver as DriverT,
   fmtEur,
@@ -40,10 +42,17 @@ export function Driver() {
   const lastSent = useRef(0);
   const lastPos = useRef<Pos | null>(null);
 
+  const [shiftInfo, setShiftInfo] = useState<DriverShiftInfo | null>(null);
+
   const load = useCallback(async () => {
-    const [m, r] = await Promise.all([api<DriverT>('/api/driver/me'), api<Ride[]>('/api/driver/rides')]);
+    const [m, r, sh] = await Promise.all([
+      api<DriverT>('/api/driver/me'),
+      api<Ride[]>('/api/driver/rides'),
+      api<DriverShiftInfo>('/api/driver/shift'),
+    ]);
     setMe(m);
     setRides(r);
+    setShiftInfo(sh);
   }, []);
 
   // prehliadač pustí zvuk až po dotyku – odomkneme ho pri každom ťuknutí do appky
@@ -70,6 +79,15 @@ export function Driver() {
       if (r.status === 'cancelled') setErr(`Dispečing zrušil jazdu: ${r.pickupAddress}`);
     },
     'ride:removed': ({ id }: { id: number }) => setRides((list) => list.filter((x) => x.id !== id)),
+    'shift:ended': ({ reason, by }: { reason: string; by: string }) => {
+      setErr(
+        reason === 'takeover'
+          ? `Tvoju smenu ukončil prevzatím auta vodič ${by}. Konečný stav km sa doplnil z jeho počiatočného stavu.`
+          : `Dispečer (${by}) ukončil tvoju smenu.`,
+      );
+      load().catch(() => {});
+    },
+    'schedule:updated': () => load().catch(() => {}),
   });
 
   useEffect(() => {
@@ -183,6 +201,43 @@ export function Driver() {
   const sorted = [...rides].sort((a, b) => PRIORITY[a.status] - PRIORITY[b.status]);
   const current = sorted[0];
   const queued = sorted.slice(1);
+  const shift = shiftInfo?.shift ?? null;
+
+  // bez smeny: najprv výber auta a počiatočný stav km
+  if (shiftInfo && !shift) {
+    return (
+      <div className="mx-auto flex min-h-[100dvh] max-w-md flex-col gap-4 bg-ink px-4 pt-[max(16px,env(safe-area-inset-top))] pb-[max(16px,env(safe-area-inset-bottom))]">
+        <div className="flex items-center justify-between">
+          <Wordmark size={24} />
+          <span className="text-sm text-muted">{me?.name}</span>
+        </div>
+        {err && (
+          <button
+            type="button"
+            onClick={() => setErr('')}
+            className="rounded-xl bg-red-950/70 p-3 text-left text-sm text-red-100"
+          >
+            {err}
+          </button>
+        )}
+        <ShiftStart
+          info={shiftInfo}
+          onStarted={() => {
+            setErr('');
+            load().catch((e) => setErr(e.message));
+          }}
+        />
+        <div className="flex items-center justify-center gap-6">
+          <button type="button" onClick={testRing} className="py-2 text-sm text-muted">
+            Vyskúšať zvonenie
+          </button>
+          <button type="button" onClick={logout} className="py-2 text-sm text-muted">
+            Odhlásiť sa
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto flex min-h-[100dvh] max-w-md flex-col gap-3.5 bg-ink px-4 pt-[max(16px,env(safe-area-inset-top))] pb-[max(16px,env(safe-area-inset-bottom))]">
@@ -193,7 +248,6 @@ export function Driver() {
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted">
         <span>{me?.name}</span>
-        {me?.vehicleCallsign && <span>· Auto {me.vehicleCallsign}</span>}
         {online && (
           <span className={gps?.error ? 'text-red-300' : 'text-soft'}>
             ·{' '}
@@ -231,6 +285,17 @@ export function Driver() {
         >
           {err}
         </button>
+      )}
+
+      {shift && (
+        <ShiftBar
+          shift={shift}
+          canEnd={!rides.some((r) => ['accepted', 'arrived', 'in_progress'].includes(r.status))}
+          onEnded={() => {
+            setFinished(null);
+            load().catch((e) => setErr(e.message));
+          }}
+        />
       )}
 
       {online && !inProgress && !street && (
@@ -279,19 +344,10 @@ export function Driver() {
             <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-panel">
               <TaxiIcon size={44} color="#FFC400" />
             </div>
-            {online ? (
-              <p className="m-0">Si online. Čakám na jazdu od dispečingu…</p>
+            {me?.status === 'break' ? (
+              <p className="m-0">Máš pauzu – dispečing ti neposiela jazdy. Prepni sa na Online.</p>
             ) : (
-              <>
-                <p className="m-0">Si offline – dispečing ti neposiela jazdy.</p>
-                <button
-                  type="button"
-                  className="btn-primary px-8 py-4 text-lg uppercase"
-                  onClick={() => setStatus('available')}
-                >
-                  Začať smenu
-                </button>
-              </>
+              <p className="m-0">Si online. Čakám na jazdu od dispečingu…</p>
             )}
           </div>
         )
@@ -358,7 +414,6 @@ function StatusSwitch({ status, onChange }: { status: DriverStatus; onChange: (s
   const opts: { s: DriverStatus; label: string }[] = [
     { s: 'available', label: 'Online' },
     { s: 'break', label: 'Pauza' },
-    { s: 'offline', label: 'Off' },
   ];
   return (
     <div className="flex rounded-full bg-panel p-1">

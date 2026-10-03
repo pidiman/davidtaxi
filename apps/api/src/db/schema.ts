@@ -1,5 +1,6 @@
 import {
   boolean,
+  customType,
   date,
   doublePrecision,
   index,
@@ -11,6 +12,8 @@ import {
   text,
   timestamp,
 } from 'drizzle-orm/pg-core';
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => 'bytea' });
 
 export const roleEnum = pgEnum('role', ['admin', 'dispatcher', 'driver']);
 export const driverStatusEnum = pgEnum('driver_status', ['offline', 'available', 'busy', 'break']);
@@ -42,6 +45,10 @@ export const vehicles = pgTable('vehicles', {
   ekUntil: date('ek_until', { mode: 'string' }), // emisná kontrola platná do
   insuranceUntil: date('insurance_until', { mode: 'string' }), // PZP platné do
   note: text('note'),
+  // fotka (zmenšená v prehliadači na ~1280 px JPEG) – v DB, aby bola v zálohe spolu s dátami
+  photo: bytea('photo'),
+  photoMime: text('photo_mime'),
+  photoUpdatedAt: timestamp('photo_updated_at', { withTimezone: true }),
   active: boolean('active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -127,3 +134,52 @@ export type User = typeof users.$inferSelect;
 export type Vehicle = typeof vehicles.$inferSelect;
 export type Ride = typeof rides.$inferSelect;
 export type Role = (typeof roleEnum.enumValues)[number];
+
+// ---------------- Rozpis (plán smien) ----------------
+export const schedules = pgTable(
+  'schedules',
+  {
+    id: serial('id').primaryKey(),
+    driverId: integer('driver_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    vehicleId: integer('vehicle_id').references(() => vehicles.id, { onDelete: 'set null' }),
+    startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+    endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+    note: text('note'),
+    createdById: integer('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('schedules_time_idx').on(t.startsAt, t.endsAt)],
+);
+
+// ---------------- Odjazdené smeny (kniha jázd so stavom km) ----------------
+// endKmSource: driver = zadal vodič pri ukončení · next_driver = doplnené z počiatočného stavu
+// ďalšieho vodiča (zabudol ukončiť) · admin = opravil admin/dispečer
+export const kmSourceEnum = pgEnum('km_source', ['driver', 'next_driver', 'admin']);
+
+export const shifts = pgTable(
+  'shifts',
+  {
+    id: serial('id').primaryKey(),
+    driverId: integer('driver_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    vehicleId: integer('vehicle_id')
+      .notNull()
+      .references(() => vehicles.id, { onDelete: 'restrict' }),
+    scheduleId: integer('schedule_id').references(() => schedules.id, { onDelete: 'set null' }),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+    startKm: integer('start_km').notNull(),
+    endKm: integer('end_km'),
+    endKmSource: kmSourceEnum('end_km_source'),
+    note: text('note'),
+  },
+  (t) => [
+    index('shifts_vehicle_idx').on(t.vehicleId, t.startedAt),
+    index('shifts_driver_idx').on(t.driverId),
+  ],
+);
+
+export type Shift = typeof shifts.$inferSelect;

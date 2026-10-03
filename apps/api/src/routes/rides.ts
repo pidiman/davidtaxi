@@ -8,6 +8,7 @@ import { acceptSegment, haversineKm } from '../geo.js';
 import { sendPush } from '../push.js';
 import { emitDispatch, emitDriver } from '../realtime.js';
 import { HttpError, num, str } from '../util.js';
+import { openShiftOf } from './shifts.js';
 
 type RideStatus = Ride['status'];
 const ACTIVE: RideStatus[] = ['assigned', 'accepted', 'arrived', 'in_progress'];
@@ -125,6 +126,7 @@ export async function rideRoutes(app: FastifyInstance) {
     if (!['new', 'assigned'].includes(r.status)) throw new HttpError(409, 'Jazdu už vodič prijal');
     const [d] = await db.select().from(users).where(eq(users.id, driverId));
     if (!d || d.role !== 'driver' || !d.active) throw new HttpError(400, 'Neplatný vodič');
+    if (d.driverStatus === 'offline' || !d.vehicleId) throw new HttpError(409, `${d.name} nie je v smene`);
 
     await db
       .update(rides)
@@ -172,8 +174,13 @@ export async function rideRoutes(app: FastifyInstance) {
   app.get('/api/driver/me', driver, async (req) => driverView(req.user.id));
 
   app.post('/api/driver/status', driver, async (req) => {
-    const s = str((req.body ?? {}) as Record<string, unknown>, 'status') as 'offline' | 'available' | 'break';
-    if (!['offline', 'available', 'break'].includes(s)) throw new HttpError(400, 'Neplatný stav');
+    const s = str((req.body ?? {}) as Record<string, unknown>, 'status') as 'available' | 'break';
+    if (!['available', 'break'].includes(s)) {
+      throw new HttpError(400, 'Smenu ukonči tlačidlom Ukončiť smenu (so stavom km)');
+    }
+    if (!(await openShiftOf(req.user.id))) throw new HttpError(409, 'Najprv začni smenu a vyber auto');
+    const [cur] = await db.select({ s: users.driverStatus }).from(users).where(eq(users.id, req.user.id));
+    if (cur?.s === 'busy') throw new HttpError(409, 'Počas jazdy nemôžeš zmeniť stav');
     await setDriverStatus(req.user.id, s);
     return driverView(req.user.id);
   });
@@ -187,6 +194,8 @@ export async function rideRoutes(app: FastifyInstance) {
       .where(and(eq(rides.driverId, req.user.id), eq(rides.status, 'in_progress')));
     if (busy.length) throw new HttpError(409, 'Najprv ukonči prebiehajúcu jazdu');
     const [me] = await db.select().from(users).where(eq(users.id, req.user.id));
+    if (!me.vehicleId || !(await openShiftOf(req.user.id)))
+      throw new HttpError(409, 'Najprv začni smenu a vyber auto');
     const now = new Date();
     const [r] = await db
       .insert(rides)
