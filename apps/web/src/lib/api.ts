@@ -286,3 +286,47 @@ export const fmtEstimate = (km: number | null) =>
   km === null || km === undefined
     ? '–'
     : `${Number(km).toLocaleString('sk-SK', { maximumFractionDigits: 1 })} km`;
+
+// ---------------- Incidenty ----------------
+export type Incident = {
+  id: number;
+  description: string;
+  createdAt: string;
+  resolvedAt: string | null;
+  resolutionNote: string | null;
+  driverId: number;
+  driverName: string;
+  vehicleId: number | null;
+  vehicleCallsign: string | null;
+  vehiclePlate: string | null;
+  shiftId: number | null;
+  rideId: number | null;
+  rideCustomer: string | null;
+  ridePickup: string | null;
+  rideDropoff: string | null;
+  rideAt: string | null;
+  photos: string[];
+};
+export type IncidentRide = {
+  id: number;
+  status: RideStatus;
+  source: 'dispatch' | 'street';
+  customerName: string;
+  pickupAddress: string;
+  dropoffAddress: string;
+  assignedAt: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  price: string | null;
+};
+export type IncidentContext = {
+  shift: {
+    id: number;
+    vehicleId: number;
+    vehicleCallsign: string | null;
+    startedAt: string;
+    endedAt: string | null;
+  } | null;
+  rides: IncidentRide[];
+  incidents: Incident[];
+};

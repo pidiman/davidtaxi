@@ -17,6 +17,7 @@ type LogPage = { rows: LogRow[]; hasMore: boolean; problems24h: number };
 const CATS = [
   { id: '', label: 'Všetko' },
   { id: 'rides', label: 'Jazdy' },
+  { id: 'incidents', label: 'Incidenty' },
   { id: 'shifts', label: 'Smeny a rozpis' },
   { id: 'access', label: 'Prihlásenia a spojenie' },
   { id: 'admin', label: 'Zmeny v admine' },
@@ -43,6 +44,9 @@ const EVT_LABEL: Record<string, string> = {
   'ride.street': 'Z ulice',
   'ride.returned': 'Vrátená',
   'ride.reminder': 'Pripomienka',
+  'incident.reported': 'Nahlásený incident',
+  'incident.resolved': 'Incident vyriešený',
+  'incident.reopened': 'Incident znovu otvorený',
   'shift.started': 'Začiatok smeny',
   'shift.ended': 'Koniec smeny',
   'shift.takeover': 'Prevzatie auta',

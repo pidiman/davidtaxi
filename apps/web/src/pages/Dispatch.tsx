@@ -213,6 +213,10 @@ export function Dispatch() {
       ),
     'ride:rejected': ({ driverName }: { driverName: string }) =>
       flash(`${driverName} odmietol jazdu – vyber iného vodiča`),
+    'incident:new': (i: { id: number; driverName: string; vehicleCallsign: string | null }) =>
+      flash(
+        `⚠ Incident #${i.id} – ${i.driverName}${i.vehicleCallsign ? `, auto ${i.vehicleCallsign}` : ''} (menu Incidenty)`,
+      ),
     'ride:street': ({ driverName, callsign }: { driverName: string; callsign: string | null }) =>
       flash(
         `${callsign ? `Auto ${callsign} · ` : ''}${driverName} zobral zákazníka z ulice – auto je obsadené`,

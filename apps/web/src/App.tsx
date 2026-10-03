@@ -6,6 +6,7 @@ import { Admin } from './pages/Admin';
 import { Dispatch } from './pages/Dispatch';
 import { Driver } from './pages/Driver';
 import { History } from './pages/History';
+import { Incidents } from './pages/Incidents';
 import { Login } from './pages/Login';
 import { Schedule } from './pages/Schedule';
 
@@ -51,6 +52,14 @@ export function App() {
             element={
               <Guard roles={DISPATCH_ROLES}>
                 <Schedule />
+              </Guard>
+            }
+          />
+          <Route
+            path="/incidents"
+            element={
+              <Guard roles={DISPATCH_ROLES}>
+                <Incidents />
               </Guard>
             }
           />

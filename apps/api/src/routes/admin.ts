@@ -20,6 +20,7 @@ import { ADMIN, DISPATCH, requireRole } from '../auth.js';
 import { db } from '../db/index.js';
 import {
   auditLog,
+  incidents,
   type Role,
   rides,
   shifts,
@@ -204,7 +205,8 @@ export async function adminRoutes(app: FastifyInstance) {
       .from(rides)
       .where(or(eq(rides.driverId, id), eq(rides.createdById, id)));
     const [{ m }] = await db.select({ m: count() }).from(shifts).where(eq(shifts.driverId, id));
-    if (Number(n) + Number(m) > 0) {
+    const [{ k }] = await db.select({ k: count() }).from(incidents).where(eq(incidents.driverId, id));
+    if (Number(n) + Number(m) + Number(k) > 0) {
       throw new HttpError(409, 'Používateľ má jazdy alebo smeny v histórii – namiesto zmazania ho deaktivuj');
     }
     const del = await db.delete(users).where(eq(users.id, id)).returning({ id: users.id, name: users.name });
@@ -339,6 +341,7 @@ export async function adminRoutes(app: FastifyInstance) {
   // kategória → prefixy udalostí
   const LOG_CATS: Record<string, string[]> = {
     rides: ['ride.'],
+    incidents: ['incident.'],
     shifts: ['shift.', 'schedule.', 'driver.'],
     access: ['auth.', 'socket.'],
     admin: ['user.', 'vehicle.'],

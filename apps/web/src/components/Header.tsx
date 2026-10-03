@@ -1,10 +1,23 @@
+import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router';
-import { isAdmin, ROLE_LABEL } from '../lib/api';
+import { api, isAdmin, ROLE_LABEL } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { TaxiIcon, Wordmark } from './Brand';
 
 export function Header({ connected }: { connected?: boolean }) {
   const { user, logout } = useAuth();
+  const [openIncidents, setOpenIncidents] = useState(0);
+  const staff = !!user && user.role !== 'driver';
+  useEffect(() => {
+    if (!staff) return;
+    const tick = () =>
+      api<{ open: number }>('/api/incidents/open-count')
+        .then((r) => setOpenIncidents(r.open))
+        .catch(() => {});
+    tick();
+    const t = setInterval(tick, 60_000);
+    return () => clearInterval(t);
+  }, [staff]);
   if (!user) return null;
   const link = ({ isActive }: { isActive: boolean }) =>
     `rounded-lg px-4 py-2.5 font-semibold no-underline ${isActive ? 'bg-raised text-taxi' : 'text-soft hover:text-text'}`;
@@ -35,6 +48,14 @@ export function Header({ connected }: { connected?: boolean }) {
         </NavLink>
         <NavLink to="/history" className={link}>
           História jázd
+        </NavLink>
+        <NavLink to="/incidents" className={link}>
+          Incidenty
+          {openIncidents > 0 && (
+            <span className="ml-1.5 rounded-full bg-taxi px-1.5 text-xs font-bold text-black">
+              {openIncidents}
+            </span>
+          )}
         </NavLink>
         {isAdmin(user.role) && (
           <NavLink to="/admin" className={link}>

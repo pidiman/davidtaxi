@@ -5,6 +5,7 @@ import { Modal } from '../components/Modal';
 import { CarPhoto } from '../components/ShiftControls';
 import { api, DRIVER_LABEL, ROLE_LABEL, type Role, type User, type Vehicle } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { resizeImage } from '../lib/image';
 
 type Tab = 'drivers' | 'vehicles' | 'staff' | 'logs';
 const FUELS = ['benzín', 'nafta', 'LPG', 'CNG', 'hybrid', 'plug-in hybrid', 'elektro'];
@@ -109,7 +110,7 @@ export function Admin() {
           <div role="tablist" className="flex flex-wrap gap-1.5 rounded-xl bg-panel p-1.5">
             {tabBtn('drivers', 'Vodiči', users.filter((u) => u.role === 'driver').length)}
             {tabBtn('vehicles', 'Autá', vehicles.length)}
-            {tabBtn('staff', 'Dispečeri a admini', users.filter((u) => u.role !== 'driver').length)}
+            {tabBtn('staff', 'Užívatelia', users.filter((u) => u.role !== 'driver').length)}
             {tabBtn('logs', 'Logy')}
           </div>
           <div className={`flex flex-wrap gap-2 ${tab === 'logs' ? 'hidden' : ''}`}>
@@ -132,7 +133,7 @@ export function Admin() {
                   setEditUser({ role: tab === 'drivers' ? 'driver' : 'dispatcher', active: true })
                 }
               >
-                + {tab === 'drivers' ? 'Nový vodič' : 'Nový dispečer'}
+                + {tab === 'drivers' ? 'Nový vodič' : 'Nový užívateľ'}
               </button>
             )}
           </div>
@@ -746,13 +747,3 @@ function VehicleForm({
 }
 
 /** Zmenší fotku v prehliadači (max 1280 px, JPEG 82 %) – do DB ide ~150–300 kB. */
-async function resizeImage(file: File, max = 1280): Promise<string> {
-  const bmp = await createImageBitmap(file);
-  const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.round(bmp.width * scale);
-  canvas.height = Math.round(bmp.height * scale);
-  canvas.getContext('2d')?.drawImage(bmp, 0, 0, canvas.width, canvas.height);
-  bmp.close();
-  return canvas.toDataURL('image/jpeg', 0.82);
-}

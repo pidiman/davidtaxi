@@ -43,6 +43,13 @@
       "when": 1791041213626,
       "tag": "0005_aromatic_magik",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791042401213,
+      "tag": "0006_hot_preak",
+      "breakpoints": true
     }
   ]
 }

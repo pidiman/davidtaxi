@@ -2,7 +2,9 @@ import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { AddressInput } from '../components/AddressInput';
 import { TaxiIcon, Wordmark } from '../components/Brand';
 import { DriverNav, type NavPos, type NavTarget } from '../components/DriverNav';
+import { IncidentReport } from '../components/IncidentReport';
 import { IncomingRideAlert } from '../components/IncomingRideAlert';
+import { Modal } from '../components/Modal';
 import { ShiftBar, ShiftStart } from '../components/ShiftControls';
 import { testRing, unlockAudio } from '../lib/alarm';
 import {
@@ -39,6 +41,8 @@ export function Driver() {
   const [street, setStreet] = useState(false);
   const [pos, setPos] = useState<NavPos | null>(null);
   const [nav, setNav] = useState<NavTarget | null>(null);
+  const [incident, setIncident] = useState(false);
+  const [toast, setToast] = useState('');
   const lastSent = useRef(0);
   const lastPos = useRef<Pos | null>(null);
 
@@ -227,7 +231,10 @@ export function Driver() {
             load().catch((e) => setErr(e.message));
           }}
         />
-        <div className="flex items-center justify-center gap-6">
+        <div className="flex flex-wrap items-center justify-center gap-x-6">
+          <button type="button" onClick={() => setIncident(true)} className="py-2 text-sm text-taxi">
+            Nahlásiť incident
+          </button>
           <button type="button" onClick={testRing} className="py-2 text-sm text-muted">
             Vyskúšať zvonenie
           </button>
@@ -235,6 +242,16 @@ export function Driver() {
             Odhlásiť sa
           </button>
         </div>
+        {incident && (
+          <IncidentReport
+            onClose={() => setIncident(false)}
+            onSent={() => {
+              setIncident(false);
+              setErr('');
+              alert('Incident odoslaný dispečingu');
+            }}
+          />
+        )}
       </div>
     );
   }
@@ -243,7 +260,10 @@ export function Driver() {
     <div className="mx-auto flex min-h-[100dvh] max-w-md flex-col gap-3.5 bg-ink px-4 pt-[max(16px,env(safe-area-inset-top))] pb-[max(16px,env(safe-area-inset-bottom))]">
       <div className="flex items-center justify-between">
         <Wordmark size={24} />
-        <StatusSwitch status={me?.status ?? 'offline'} onChange={setStatus} />
+        <div className="flex items-center gap-2">
+          <StatusButton status={me?.status ?? 'offline'} onChange={setStatus} />
+          <DriverMenu onIncident={() => setIncident(true)} onTestRing={testRing} onLogout={logout} />
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted">
@@ -395,39 +415,188 @@ export function Driver() {
         />
       )}
 
-      <div className="mt-auto flex items-center justify-center gap-6">
-        <button type="button" onClick={testRing} className="py-2 text-sm text-muted">
-          Vyskúšať zvonenie
-        </button>
-        <button type="button" onClick={logout} className="py-2 text-sm text-muted">
-          Odhlásiť sa
-        </button>
-      </div>
+      {incident && (
+        <IncidentReport
+          onClose={() => setIncident(false)}
+          onSent={() => {
+            setIncident(false);
+            setToast('Incident odoslaný dispečingu');
+            setTimeout(() => setToast(''), 3500);
+          }}
+        />
+      )}
+
+      {toast && (
+        <div className="fixed inset-x-4 bottom-[max(16px,env(safe-area-inset-bottom))] z-[3100] mx-auto max-w-md rounded-xl bg-taxi px-4 py-3 text-center font-semibold text-black shadow-2xl">
+          {toast}
+        </div>
+      )}
     </div>
   );
 }
 
-function StatusSwitch({ status, onChange }: { status: DriverStatus; onChange: (s: DriverStatus) => void }) {
+const STATUS_OPTS: { s: 'available' | 'break'; label: string; hint: string }[] = [
+  { s: 'available', label: 'Online', hint: 'Dispečing ti posiela jazdy' },
+  { s: 'break', label: 'Pauza', hint: 'Nedostávaš nové jazdy' },
+];
+
+/** Tlačidlo so stavom – klik otvorí popup s výberom (Online / Pauza). */
+function StatusButton({ status, onChange }: { status: DriverStatus; onChange: (s: DriverStatus) => void }) {
+  const [open, setOpen] = useState(false);
   if (status === 'busy') {
     return <span className="rounded-full bg-text px-3.5 py-2 text-sm font-bold text-black">Na jazde</span>;
   }
-  const opts: { s: DriverStatus; label: string }[] = [
-    { s: 'available', label: 'Online' },
-    { s: 'break', label: 'Pauza' },
-  ];
+  const label = status === 'break' ? 'Pauza' : status === 'available' ? 'Online' : 'Offline';
   return (
-    <div className="flex rounded-full bg-panel p-1">
-      {opts.map((o) => (
-        <button
-          key={o.s}
-          type="button"
-          onClick={() => onChange(o.s)}
-          aria-pressed={status === o.s}
-          className={`rounded-full px-3 py-1.5 text-sm font-bold ${status === o.s ? (o.s === 'available' ? 'bg-taxi text-black' : 'bg-raised text-text') : 'text-muted'}`}
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-haspopup="dialog"
+        className={`flex items-center gap-2 rounded-full px-3.5 py-2 text-sm font-bold ${status === 'available' ? 'bg-taxi text-black' : 'bg-raised text-text'}`}
+      >
+        <span
+          className={`h-2.5 w-2.5 rounded-full ${status === 'available' ? 'bg-black' : 'bg-muted'}`}
+          aria-hidden="true"
+        />
+        {label}
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="3"
+          aria-hidden="true"
         >
-          {o.label}
-        </button>
-      ))}
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+      {open && (
+        <Modal title="Môj stav" onClose={() => setOpen(false)}>
+          <div className="flex flex-col gap-2.5">
+            {STATUS_OPTS.map((o) => {
+              const active = status === o.s;
+              return (
+                <button
+                  key={o.s}
+                  type="button"
+                  onClick={() => {
+                    if (!active) onChange(o.s);
+                    setOpen(false);
+                  }}
+                  className={`flex items-center gap-3 rounded-2xl p-4 text-left ${active ? 'border-2 border-taxi bg-taxi-dim' : 'border border-line'}`}
+                >
+                  <span
+                    className={`h-4 w-4 shrink-0 rounded-full ${o.s === 'available' ? 'bg-taxi' : 'bg-[#5a5a5a]'}`}
+                    aria-hidden="true"
+                  />
+                  <span className="flex-1">
+                    <span className="block text-lg font-bold">{o.label}</span>
+                    <span className="block text-sm text-muted">{o.hint}</span>
+                  </span>
+                  {active && <span className="text-sm font-semibold text-taxi">aktuálne</span>}
+                </button>
+              );
+            })}
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+/** Hamburger menu vodiča. */
+function DriverMenu({
+  onIncident,
+  onTestRing,
+  onLogout,
+}: {
+  onIncident: () => void;
+  onTestRing: () => void;
+  onLogout: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const item = 'flex w-full items-center gap-3 px-4 py-3.5 text-left text-base hover:bg-raised';
+  const pick = (fn: () => void) => () => {
+    setOpen(false);
+    fn();
+  };
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-label="Menu"
+        aria-expanded={open}
+        className="flex h-10 w-10 items-center justify-center rounded-full bg-panel text-text"
+      >
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.4"
+          strokeLinecap="round"
+          aria-hidden="true"
+        >
+          <path d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+      </button>
+      {open && (
+        <>
+          <button
+            type="button"
+            aria-label="Zavrieť menu"
+            className="fixed inset-0 z-[1500] cursor-default bg-black/50"
+            onClick={() => setOpen(false)}
+          />
+          <div
+            role="menu"
+            className="absolute top-12 right-0 z-[1600] w-64 overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl"
+          >
+            <button
+              type="button"
+              role="menuitem"
+              className={`${item} font-semibold text-taxi`}
+              onClick={pick(onIncident)}
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+                <path d="M12 9v4M12 17h.01" />
+              </svg>
+              Incident
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className={`${item} border-t border-line text-soft`}
+              onClick={pick(onTestRing)}
+            >
+              Vyskúšať zvonenie
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className={`${item} border-t border-line text-soft`}
+              onClick={pick(onLogout)}
+            >
+              Odhlásiť sa
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

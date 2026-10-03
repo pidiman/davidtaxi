@@ -13,6 +13,7 @@ import { pushEnabled } from './push.js';
 import { attachRealtime } from './realtime.js';
 import { adminRoutes } from './routes/admin.js';
 import { authRoutes } from './routes/auth.js';
+import { incidentRoutes } from './routes/incidents.js';
 import { miscRoutes } from './routes/misc.js';
 import { rideRoutes, startAssignReminders } from './routes/rides.js';
 import { shiftRoutes } from './routes/shifts.js';
@@ -81,6 +82,7 @@ await app.register(adminRoutes);
 await app.register(rideRoutes);
 await app.register(shiftRoutes);
 await app.register(miscRoutes);
+await app.register(incidentRoutes);
 
 // Frontend (dashboard + PWA) – rovnaký origin ako API, takže netreba CORS
 if (existsSync(env.webDist)) {

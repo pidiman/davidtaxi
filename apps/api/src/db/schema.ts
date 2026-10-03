@@ -204,3 +204,39 @@ export const auditLog = pgTable(
   },
   (t) => [index('audit_log_at_idx').on(t.at), index('audit_log_evt_idx').on(t.evt, t.at)],
 );
+
+// ---------------- Incidenty nahlásené vodičom (napr. zašpinené auto, škoda, konflikt) ----------------
+export const incidents = pgTable(
+  'incidents',
+  {
+    id: serial('id').primaryKey(),
+    driverId: integer('driver_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    vehicleId: integer('vehicle_id').references(() => vehicles.id, { onDelete: 'set null' }),
+    shiftId: integer('shift_id').references(() => shifts.id, { onDelete: 'set null' }),
+    rideId: integer('ride_id').references(() => rides.id, { onDelete: 'set null' }),
+    description: text('description').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    resolvedById: integer('resolved_by_id').references(() => users.id, { onDelete: 'set null' }),
+    resolutionNote: text('resolution_note'),
+  },
+  (t) => [index('incidents_created_idx').on(t.createdAt), index('incidents_driver_idx').on(t.driverId)],
+);
+
+// fotky sa servírujú cez náhodný kľúč (img tag neposiela token), nie cez poradové ID
+export const incidentPhotos = pgTable(
+  'incident_photos',
+  {
+    id: serial('id').primaryKey(),
+    incidentId: integer('incident_id')
+      .notNull()
+      .references(() => incidents.id, { onDelete: 'cascade' }),
+    key: text('key').notNull().unique(),
+    mime: text('mime').notNull(),
+    data: bytea('data').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('incident_photos_incident_idx').on(t.incidentId)],
+);
