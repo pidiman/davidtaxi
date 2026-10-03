@@ -333,7 +333,6 @@ export function Dispatch() {
 
   async function createRide(e: FormEvent) {
     e.preventDefault();
-    const pickDriver = (e.nativeEvent as SubmitEvent).submitter?.getAttribute('name') === 'pickDriver';
     setBusy(true);
     try {
       const r = await api<Ride>('/api/rides', {
@@ -344,8 +343,7 @@ export function Dispatch() {
       });
       setRides((list) => (list.some((x) => x.id === r.id) ? list : [...list, r]));
       setSelectedId(r.id);
-      if (pickDriver) setAssignId(r.id); // rovno ponúkni výber vodiča
-      else flash('Objednávka uložená');
+      setAssignId(r.id); // rovno ponúkni výber vodiča
       setForm(emptyForm);
     } catch (err) {
       flash((err as Error).message);
@@ -474,23 +472,13 @@ export function Dispatch() {
                 </span>
               </div>
             )}
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="submit"
-                className="btn-primary py-3.5 text-base uppercase tracking-wide"
-                disabled={busy}
-              >
-                Uložiť objednávku
-              </button>
-              <button
-                type="submit"
-                name="pickDriver"
-                className="btn-outline py-3.5 text-base uppercase tracking-wide"
-                disabled={busy}
-              >
-                Uložiť a vybrať vodiča
-              </button>
-            </div>
+            <button
+              type="submit"
+              className="btn-primary py-3.5 text-base uppercase tracking-wide"
+              disabled={busy}
+            >
+              Uložiť a vybrať vodiča
+            </button>
           </form>
 
           <DriversPanel
