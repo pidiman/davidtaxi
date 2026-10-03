@@ -25,11 +25,12 @@ function carIcon(d: Driver, mode: LabelMode, selected: boolean) {
   });
 }
 
-const pickupIcon = (label: string) =>
+/** Bod A čakajúcej objednávky; vybraná je žltá, ostatné tlmené, poslané vodičovi s okrajom. */
+const pickupIcon = (r: Ride, selected: boolean) =>
   L.divIcon({
     className: '',
     iconSize: [0, 0],
-    html: `<span class="pin-label">A · ${esc(label)}</span>`,
+    html: `<span class="pin-label${selected ? '' : ' pin-muted'}${r.status === 'assigned' ? ' pin-assigned' : ''}">A · ${esc(r.customerName)}</span>`,
   });
 
 const draftIcon = (letter: PickTarget) =>
@@ -40,11 +41,19 @@ const draftIcon = (letter: PickTarget) =>
     html: `<div class="draft-pin draft-${letter}"><span>${letter}</span></div>`,
   });
 
-function FlyTo({ pos }: { pos: Pt | null }) {
+export type RideFocus = { lat: number; lng: number; seq: number };
+
+/**
+ * Presun na bod A objednávky – LEN keď ho dispečer výslovne vyžiada (klik v zozname).
+ * Ak je bod už viditeľný, mapa sa nehýbe; inak sa len posunie (zoom ostáva).
+ */
+function PanToRide({ target }: { target: RideFocus | null }) {
   const map = useMap();
   useEffect(() => {
-    if (pos) map.flyTo(pos, Math.max(map.getZoom(), 13), { duration: 0.6 });
-  }, [pos, map]);
+    if (!target) return;
+    const p = L.latLng(target.lat, target.lng);
+    if (!map.getBounds().pad(-0.1).contains(p)) map.panTo(p, { animate: true, duration: 0.5 });
+  }, [target, map]);
   return null;
 }
 
@@ -89,9 +98,15 @@ export function FleetMap({
   selectedDriverId,
   onSelectDriver,
   focus,
+  pending,
+  onSelectRide,
+  rideFocus,
 }: {
   drivers: Driver[];
   selected: Ride | null;
+  pending: Ride[];
+  onSelectRide: (id: number) => void;
+  rideFocus: RideFocus | null;
   highlightDriverId: number | null;
   labelMode: LabelMode;
   pickTarget: PickTarget | null;
@@ -117,7 +132,7 @@ export function FleetMap({
               key={d.id}
               position={[d.lat!, d.lng!]}
               icon={carIcon(d, labelMode, d.id === selectedDriverId)}
-              zIndexOffset={d.id === selectedDriverId ? 1000 : 0}
+              zIndexOffset={d.id === selectedDriverId ? 1000 : 700}
               eventHandlers={{ click: () => !pickTarget && onSelectDriver(d.id) }}
               keyboard
               title={`${d.vehicleCallsign ?? '?'} · ${d.name}`}
@@ -127,7 +142,17 @@ export function FleetMap({
               </Tooltip>
             </Marker>
           ))}
-        {pickup && selected && <Marker position={pickup} icon={pickupIcon(selected.customerName)} />}
+        {pending
+          .filter((r) => r.pickupLat !== null && r.pickupLng !== null)
+          .map((r) => (
+            <Marker
+              key={`ride-${r.id}`}
+              position={[r.pickupLat!, r.pickupLng!]}
+              icon={pickupIcon(r, r.id === selected?.id)}
+              zIndexOffset={r.id === selected?.id ? 900 : 500}
+              eventHandlers={{ click: () => !pickTarget && onSelectRide(r.id) }}
+            />
+          ))}
         {pickup && hl && (
           <Polyline
             positions={[[hl.lat!, hl.lng!], pickup]}
@@ -149,7 +174,7 @@ export function FleetMap({
             </Tooltip>
           </Marker>
         )}
-        <FlyTo pos={pickup} />
+        <PanToRide target={rideFocus} />
         <FocusOn focus={focus} />
         <PickHandler active={pickTarget !== null} onPick={onPick} />
       </MapContainer>

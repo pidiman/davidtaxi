@@ -1,7 +1,14 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AddressInput } from '../components/AddressInput';
 import { DriverDetailCard } from '../components/DriverDetailCard';
-import { FleetMap, type LabelMode, type MapFocus, type PickTarget, STUPAVA } from '../components/FleetMap';
+import {
+  FleetMap,
+  type LabelMode,
+  type MapFocus,
+  type PickTarget,
+  type RideFocus,
+  STUPAVA,
+} from '../components/FleetMap';
 import { Header } from '../components/Header';
 import {
   api,
@@ -65,6 +72,15 @@ export function Dispatch() {
   const [detailRefresh, setDetailRefresh] = useState(0);
   const mapRef = useRef<HTMLDivElement>(null);
   const [focus, setFocus] = useState<MapFocus | null>(null);
+  const [rideFocus, setRideFocus] = useState<RideFocus | null>(null);
+
+  /** Výber objednávky zo zoznamu: mapa sa posunie na bod A len ak nie je viditeľný. */
+  function selectRideFromList(r: Ride) {
+    setSelectedId(r.id);
+    if (r.pickupLat !== null && r.pickupLng !== null) {
+      setRideFocus((f) => ({ lat: r.pickupLat!, lng: r.pickupLng!, seq: (f?.seq ?? 0) + 1 }));
+    }
+  }
   const [mapQuery, setMapQuery] = useState('');
   const [mapSearching, setMapSearching] = useState(false);
   const [mapSearchErr, setMapSearchErr] = useState('');
@@ -373,7 +389,7 @@ export function Dispatch() {
               <button
                 key={r.id}
                 type="button"
-                onClick={() => setSelectedId(r.id)}
+                onClick={() => selectRideFromList(r)}
                 className={`rounded-[10px] p-3 text-left ${
                   r.id === selectedId
                     ? 'border-2 border-taxi bg-taxi-dim'
@@ -494,6 +510,9 @@ export function Dispatch() {
                 setDetailRefresh((n) => n + 1);
               }}
               focus={focus}
+              pending={pending}
+              onSelectRide={setSelectedId}
+              rideFocus={rideFocus}
             />
             <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 py-3 text-[13px] text-muted">
               <Legend color="#FFC400" label="voľný" />

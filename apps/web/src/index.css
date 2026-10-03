@@ -179,3 +179,15 @@ body {
   border: 3px solid #fff;
   box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.3);
 }
+/* body A čakajúcich objednávok */
+.pin-label {
+  cursor: pointer;
+}
+.pin-label.pin-muted {
+  background: #3a3a3a;
+  color: #f2f2f2;
+}
+.pin-label.pin-assigned {
+  outline: 2px dashed #ffc400;
+  outline-offset: 1px;
+}
