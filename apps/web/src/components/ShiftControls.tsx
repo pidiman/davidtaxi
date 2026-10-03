@@ -201,6 +201,8 @@ export function EndShiftDialog({
   const [error, setError] = useState('');
   const kmNum = Number(km.replace(/\s/g, ''));
   const valid = km !== '' && Number.isInteger(kmNum) && kmNum >= shift.startKm;
+  // odhad tachometra: počiatočný stav + km odjazdené na jazdách v tejto smene
+  const estimateKm = Math.round(shift.startKm + (shift.stats?.km ?? 0));
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -229,6 +231,7 @@ export function EndShiftDialog({
             inputMode="numeric"
             pattern="[0-9 ]*"
             autoComplete="off"
+            placeholder={`≈ ${fmtInt(estimateKm)}`}
             value={km}
             onChange={(e) => setKm(e.target.value.replace(/[^\d ]/g, ''))}
             required
