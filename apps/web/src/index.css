@@ -1,0 +1,101 @@
+@import "tailwindcss";
+
+@theme {
+  --color-taxi: #ffc400;
+  --color-taxi-hover: #ffd54a;
+  --color-taxi-dim: #221d0a;
+  --color-ink: #0e0e0e;
+  --color-panel: #181818;
+  --color-raised: #222222;
+  --color-line: #2e2e2e;
+  --color-muted: #a8a8a8;
+  --color-soft: #d0d0d0;
+  --color-text: #f2f2f2;
+  --font-sans: "Barlow", system-ui, sans-serif;
+  --font-display: "Barlow Condensed", "Barlow", sans-serif;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+body {
+  margin: 0;
+  background: var(--color-ink);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+}
+
+@utility field {
+  @apply w-full rounded-lg border border-line bg-ink px-3 py-2.5 text-[15px] text-text outline-none placeholder:text-muted/70 focus:border-taxi;
+}
+@utility label {
+  @apply flex flex-col gap-1 text-xs text-muted;
+}
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 font-semibold transition disabled:cursor-not-allowed disabled:opacity-50;
+}
+@utility btn-primary {
+  @apply btn bg-taxi text-black hover:bg-taxi-hover;
+}
+@utility btn-outline {
+  @apply btn border border-taxi text-taxi hover:bg-taxi-dim;
+}
+@utility btn-ghost {
+  @apply btn border border-[#444] text-soft hover:bg-raised;
+}
+@utility card {
+  @apply rounded-2xl bg-panel p-4;
+}
+@utility h2 {
+  @apply m-0 font-display text-[22px] font-bold uppercase tracking-wide;
+}
+
+/* tmavá mapa z OSM dlaždíc */
+.map-dark .leaflet-tile {
+  filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9) saturate(0.3);
+}
+.leaflet-container {
+  background: #141414;
+  font-family: var(--font-sans);
+}
+.car-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  font-weight: 800;
+  font-size: 13px;
+  border: 2px solid #000;
+}
+.car-available {
+  background: #ffc400;
+  color: #000;
+}
+.car-busy {
+  background: #f2f2f2;
+  color: #000;
+}
+.car-break,
+.car-offline {
+  background: #5a5a5a;
+  color: #f2f2f2;
+}
+.car-stale {
+  opacity: 0.45;
+}
+.pin-label {
+  background: #ffc400;
+  color: #000;
+  font-weight: 700;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  transform: translate(-50%, -130%);
+  display: inline-block;
+}

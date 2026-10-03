@@ -1,0 +1,45 @@
+name: davidtaxi
+
+services:
+  db:
+    image: postgres:17.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: Europe/Bratislava
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    image: davidtaxi-app:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    # premenné sa dosadzujú z .env (docker compose) alebo z Environment variables (Portainer stack)
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET:?nastav JWT_SECRET}
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8088}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      PRICE_MIN: ${PRICE_MIN:-3.50}
+      PRICE_PER_KM: ${PRICE_PER_KM:-1.00}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
+      GEOCODER_URL: ${GEOCODER_URL:-https://nominatim.openstreetmap.org/search}
+      TZ: Europe/Bratislava
+    ports:
+      - "${APP_PORT:-8088}:3000"
+
+volumes:
+  pgdata:

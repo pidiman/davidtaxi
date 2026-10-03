@@ -1,0 +1,16 @@
+{
+  "name": "davidtaxi",
+  "private": true,
+  "packageManager": "pnpm@10.18.0",
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "build": "pnpm --filter web build && pnpm --filter api build",
+    "check": "biome check .",
+    "format": "biome format --write .",
+    "db:generate": "pnpm --filter api db:generate",
+    "vapid": "pnpm --filter api vapid"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.2.4"
+  }
+}
