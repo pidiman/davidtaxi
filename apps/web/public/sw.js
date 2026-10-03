@@ -5,7 +5,7 @@ self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
 self.addEventListener('push', (event) => {
-  let data = { title: 'Rychle Taxi', body: 'Nová správa', url: '/driver' };
+  let data = { title: 'Rýchle Taxi', body: 'Nová správa', url: '/driver' };
   try {
     data = { ...data, ...event.data.json() };
   } catch {}

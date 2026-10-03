@@ -23,7 +23,7 @@ export function TaxiIcon({ size = 26, color = '#000' }: { size?: number; color?:
 export function Wordmark({ size = 26 }: { size?: number }) {
   return (
     <span className="font-display font-extrabold leading-none tracking-wider" style={{ fontSize: size }}>
-      RYCHLE <span className="text-taxi">TAXI</span>
+      RÝCHLE <span className="text-taxi">TAXI</span>
     </span>
   );
 }

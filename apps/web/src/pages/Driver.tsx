@@ -383,10 +383,10 @@ export function Driver() {
             </div>
           )}
           <div className="mt-2 flex gap-2">
-            <button type="button" className="btn-outline flex-1" onClick={() => setCommentRide(finished.id)}>
+            <button type="button" className="btn-ghost flex-1" onClick={() => setCommentRide(finished.id)}>
               Komentár k jazde
             </button>
-            <button type="button" className="btn-ghost flex-1" onClick={() => setFinished(null)}>
+            <button type="button" className="btn-primary flex-1" onClick={() => setFinished(null)}>
               OK
             </button>
           </div>
