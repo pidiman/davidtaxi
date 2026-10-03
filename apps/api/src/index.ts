@@ -8,6 +8,8 @@ import { db, runMigrations } from './db/index.js';
 import { users } from './db/schema.js';
 import { env } from './env.js';
 import { backfillEstimates } from './estimate.js';
+import { initLog } from './log.js';
+import { pushEnabled } from './push.js';
 import { attachRealtime } from './realtime.js';
 import { adminRoutes } from './routes/admin.js';
 import { authRoutes } from './routes/auth.js';
@@ -16,14 +18,59 @@ import { rideRoutes, startAssignReminders } from './routes/rides.js';
 import { shiftRoutes } from './routes/shifts.js';
 import { HttpError } from './util.js';
 
-const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' }, trustProxy: true });
+const app = Fastify({
+  logger: { level: process.env.LOG_LEVEL ?? 'info' },
+  trustProxy: true,
+  // vlastný jeden riadok na request (nižšie) namiesto dvoch defaultných
+  disableRequestLogging: true,
+});
+initLog(app.log);
+
+declare module 'fastify' {
+  interface FastifyRequest {
+    errorMsg?: string;
+  }
+}
 
 app.setErrorHandler((err, req, reply) => {
-  if (err instanceof HttpError) return reply.code(err.statusCode).send({ error: err.message });
+  if (err instanceof HttpError) {
+    req.errorMsg = err.message;
+    return reply.code(err.statusCode).send({ error: err.message });
+  }
   const status = (err as { statusCode?: number }).statusCode;
-  if (status && status < 500) return reply.code(status).send({ error: (err as Error).message });
+  if (status && status < 500) {
+    req.errorMsg = (err as Error).message;
+    return reply.code(status).send({ error: (err as Error).message });
+  }
   req.log.error(err);
   return reply.code(500).send({ error: 'Interná chyba servera' });
+});
+
+/**
+ * Log requestov:
+ *  - chyby (4xx warn, 5xx error) vždy, s dôvodom,
+ *  - úspešné requesty len na úrovni debug (LOG_LEVEL=debug) – zmeny pokrývajú audit udalosti,
+ *  - GPS polohy, health check, statické súbory a socket.io sa nelogujú vôbec (okrem 5xx).
+ */
+const QUIET = ['/api/driver/location', '/api/health'];
+app.addHook('onResponse', async (req, reply) => {
+  const url = req.url;
+  const status = reply.statusCode;
+  const quiet = !url.startsWith('/api/') || QUIET.some((p) => url.startsWith(p));
+  if (quiet && status < 500) return;
+  const line = {
+    method: req.method,
+    url,
+    status,
+    ms: Math.round(reply.elapsedTime),
+    ip: req.ip,
+    ...(req.user ? { userId: req.user.id, role: req.user.role } : {}),
+    ...(req.errorMsg ? { reason: req.errorMsg } : {}),
+  };
+  const msg = `${req.method} ${url} → ${status}${req.errorMsg ? ` (${req.errorMsg})` : ''}`;
+  if (status >= 500) req.log.error(line, msg);
+  else if (status >= 400) req.log.warn(line, msg);
+  else req.log.debug(line, msg);
 });
 
 await registerAuth(app);
@@ -77,10 +124,16 @@ await seedAdmin();
 attachRealtime(app);
 startAssignReminders();
 await app.listen({ host: '0.0.0.0', port: env.port });
-backfillEstimates((m) => app.log.info(m)).catch(() => {});
+backfillEstimates((m) => app.log.info(m)).catch((e) => app.log.warn({ err: e }, 'backfill odhadov zlyhal'));
+if (!pushEnabled) app.log.warn({ evt: 'push.disabled' }, 'Chýbajú VAPID kľúče – push notifikácie sú vypnuté');
+app.log.info(
+  { evt: 'server.start', port: env.port, logLevel: app.log.level },
+  `Server beží na porte ${env.port}`,
+);
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, async () => {
+    app.log.info({ evt: 'server.stop', signal: sig }, 'Server sa vypína');
     await app.close();
     process.exit(0);
   });

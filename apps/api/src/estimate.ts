@@ -3,6 +3,7 @@ import { db } from './db/index.js';
 import { rides } from './db/schema.js';
 import { env } from './env.js';
 import { haversineKm } from './geo.js';
+import { warn } from './log.js';
 
 const geocoderUrl = process.env.GEOCODER_URL ?? 'https://nominatim.openstreetmap.org/search';
 const osrmUrl = (process.env.OSRM_URL ?? 'https://router.project-osrm.org').replace(/\/$/, '');
@@ -18,7 +19,10 @@ async function geocodeFirst(q: string): Promise<Pt | null> {
   url.searchParams.set('limit', '1');
   url.searchParams.set('countrycodes', 'sk,at,cz,hu');
   const res = await fetch(url, { headers: UA, signal: AbortSignal.timeout(8000) });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    warn('geocoder.failed', `Geokóder vrátil ${res.status}`, { status: res.status });
+    return null;
+  }
   const [d] = (await res.json()) as { lat: string; lon: string }[];
   return d ? { lat: Number(d.lat), lng: Number(d.lon) } : null;
 }
@@ -37,9 +41,14 @@ export async function roadKm(a: Pt, b: Pt): Promise<number> {
       const data = (await res.json()) as { code: string; routes?: { distance: number }[] };
       const m = data.routes?.[0]?.distance;
       if (data.code === 'Ok' && typeof m === 'number') return m / 1000;
+      warn('osrm.no_route', `OSRM nenašiel trasu (${data.code}) – použitý odhad vzdušnou čiarou`);
+    } else {
+      warn('osrm.failed', `OSRM vrátil ${res.status} – použitý odhad vzdušnou čiarou`, {
+        status: res.status,
+      });
     }
-  } catch {
-    /* fallback nižšie */
+  } catch (err) {
+    warn('osrm.failed', 'OSRM nedostupné – použitý odhad vzdušnou čiarou', { err: (err as Error).message });
   }
   return haversineKm(a.lat, a.lng, b.lat, b.lng) * ROAD_FACTOR;
 }
@@ -58,8 +67,11 @@ export async function estimateRide(id: number): Promise<boolean> {
   try {
     if (!a) a = await geocodeFirst(r.pickupAddress);
     if (!b) b = await geocodeFirst(r.dropoffAddress);
-  } catch {
-    /* adresu nevieme nájsť – vzdialenosť ostane prázdna */
+  } catch (err) {
+    warn('geocoder.failed', `Geokódovanie adresy jazdy #${id} zlyhalo`, {
+      rideId: id,
+      err: (err as Error).message,
+    });
   }
   if (!a || !b) return false;
   const km = Math.round((await roadKm(a, b)) * 10) / 10;

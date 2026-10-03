@@ -1,9 +1,17 @@
 name: davidtaxi
 
+# rotácia Docker logov: max 5 × 10 MB na kontajner, staršie sa mažú
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   db:
     image: postgres:17.6-alpine
     restart: unless-stopped
+    logging: *logging
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -21,6 +29,7 @@ services:
     build: .
     image: davidtaxi-app:latest
     restart: unless-stopped
+    logging: *logging
     depends_on:
       db:
         condition: service_healthy
@@ -38,6 +47,7 @@ services:
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
       GEOCODER_URL: ${GEOCODER_URL:-https://nominatim.openstreetmap.org/search}
       OSRM_URL: ${OSRM_URL:-https://router.project-osrm.org}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
       TZ: Europe/Bratislava
     ports:
       - "${APP_PORT:-8088}:3000"

@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { DISPATCH, requireRole } from '../auth.js';
 import { db } from '../db/index.js';
 import { rides, schedules, shifts, users, vehicles } from '../db/schema.js';
+import { audit, byFields, who } from '../log.js';
 import { emitDispatch, emitDriver } from '../realtime.js';
 import { HttpError, num, str } from '../util.js';
 
@@ -237,6 +238,15 @@ export async function shiftRoutes(app: FastifyInstance) {
           .orderBy(desc(shifts.startedAt))
           .limit(1);
         if (last && last.endKm === null) {
+          audit(
+            'shift.km_backfill',
+            `Smena #${last.id}: konečný stav km doplnený z ďalšej smeny (${startKm})`,
+            {
+              shiftId: last.id,
+              endKm: startKm,
+              vehicleId,
+            },
+          );
           await tx
             .update(shifts)
             .set({ endKm: startKm, endKmSource: 'next_driver' })
@@ -258,10 +268,28 @@ export async function shiftRoutes(app: FastifyInstance) {
     });
 
     if (holder) {
+      audit(
+        'shift.takeover',
+        `Auto ${v.callsign} prevzal ${req.user.name} od ${holder.driverName} – jeho smena #${holder.id} uzavretá, konečné km ${startKm}`,
+        {
+          vehicleId,
+          prevShiftId: holder.id,
+          prevDriverId: holder.driverId,
+          driverId: req.user.id,
+          endKm: startKm,
+        },
+      );
       emitDriver(holder.driverId, 'shift:ended', { reason: 'takeover', by: req.user.name });
       emitDispatch('driver:updated', await driverBrief(holder.driverId));
     }
     emitDispatch('driver:updated', await driverBrief(req.user.id));
+    audit('shift.started', `Smena #${shiftId} začala – ${req.user.name}, auto ${v.callsign}, ${startKm} km`, {
+      shiftId,
+      driverId: req.user.id,
+      vehicleId,
+      startKm,
+      scheduleId: schedule?.id,
+    });
     const view = await shiftView(shiftId);
     emitDispatch('shift:updated', view);
     return view;
@@ -290,12 +318,23 @@ export async function shiftRoutes(app: FastifyInstance) {
       .set({ status: 'new', driverId: null, vehicleId: null, assignedAt: null })
       .where(and(eq(rides.driverId, req.user.id), eq(rides.status, 'assigned')))
       .returning({ id: rides.id });
-    for (const p of pending) emitDispatch('ride:returned', { id: p.id });
+    for (const p of pending) {
+      emitDispatch('ride:returned', { id: p.id });
+      audit('ride.returned', `Jazda #${p.id} vrátená medzi čakajúce (vodič ukončil smenu)`, {
+        rideId: p.id,
+        driverId: req.user.id,
+      });
+    }
 
     await db
       .update(shifts)
       .set({ endedAt: new Date(), endKm, endKmSource: 'driver' })
       .where(eq(shifts.id, open.id));
+    audit(
+      'shift.ended',
+      `Smena #${open.id} ukončená – ${req.user.name}, ${endKm} km (najazdené ${endKm - open.startKm} km)`,
+      { shiftId: open.id, driverId: req.user.id, vehicleId: open.vehicleId, startKm: open.startKm, endKm },
+    );
     await setDriverOffShift(req.user.id);
     const view = await shiftView(open.id);
     emitDispatch('shift:updated', view);
@@ -422,6 +461,13 @@ export async function shiftRoutes(app: FastifyInstance) {
     const end = patch.endKm === undefined ? s.endKm : patch.endKm;
     if (end !== null && end < start) throw new HttpError(400, 'Konečný stav km je nižší ako počiatočný');
     await db.update(shifts).set(patch).where(eq(shifts.id, id));
+    audit('shift.edited', `Smena #${id} upravená – ${who(req)}`, {
+      shiftId: id,
+      changes: Object.keys(patch),
+      startKm: patch.startKm,
+      endKm: patch.endKm,
+      ...byFields(req),
+    });
     const view = await shiftView(id);
     emitDispatch('shift:updated', view);
     return view;
@@ -446,6 +492,11 @@ export async function shiftRoutes(app: FastifyInstance) {
       .update(shifts)
       .set({ endedAt: new Date(), endKm, endKmSource: endKm === null ? null : 'admin' })
       .where(eq(shifts.id, id));
+    audit(
+      'shift.ended_by_dispatch',
+      `Smena #${id} vodiča #${s.driverId} ukončená dispečingom${endKm === null ? ' bez km' : `, ${endKm} km`} – ${who(req)}`,
+      { shiftId: id, driverId: s.driverId, endKm, ...byFields(req) },
+    );
     await setDriverOffShift(s.driverId);
     emitDriver(s.driverId, 'shift:ended', { reason: 'dispatch', by: req.user.name });
     const view = await shiftView(id);
@@ -533,6 +584,16 @@ export async function shiftRoutes(app: FastifyInstance) {
       .values({ ...v, note: str(b, 'note', false) ?? null, createdById: req.user.id })
       .returning({ id: schedules.id });
     const view = await scheduleView(s.id);
+    audit(
+      'schedule.created',
+      `Rozpis #${s.id}: ${view?.driverName} ${fmtRange(v.startsAt, v.endsAt)} – ${who(req)}`,
+      {
+        scheduleId: s.id,
+        driverId: v.driverId,
+        vehicleId: v.vehicleId,
+        ...byFields(req),
+      },
+    );
     emitDriver(v.driverId, 'schedule:updated', view);
     return view;
   });
@@ -554,6 +615,16 @@ export async function shiftRoutes(app: FastifyInstance) {
       .set({ ...v, note: 'note' in b ? (str(b, 'note', false) ?? null) : cur.note })
       .where(eq(schedules.id, id));
     const view = await scheduleView(id);
+    audit(
+      'schedule.updated',
+      `Rozpis #${id}: ${view?.driverName} ${fmtRange(v.startsAt, v.endsAt)} – ${who(req)}`,
+      {
+        scheduleId: id,
+        driverId: v.driverId,
+        vehicleId: v.vehicleId,
+        ...byFields(req),
+      },
+    );
     emitDriver(v.driverId, 'schedule:updated', view);
     if (cur.driverId !== v.driverId) emitDriver(cur.driverId, 'schedule:updated', null);
     return view;
@@ -565,9 +636,26 @@ export async function shiftRoutes(app: FastifyInstance) {
       .where(eq(schedules.id, Number(req.params.id)))
       .returning({ driverId: schedules.driverId });
     if (!del.length) throw new HttpError(404, 'Položka rozpisu neexistuje');
+    audit('schedule.deleted', `Rozpis #${req.params.id} zmazaný – ${who(req)}`, {
+      scheduleId: Number(req.params.id),
+      driverId: del[0].driverId,
+      ...byFields(req),
+    });
     emitDriver(del[0].driverId, 'schedule:updated', null);
     return { ok: true };
   });
 }
+
+const fmtRange = (a: Date, b: Date) => {
+  const f = (d: Date) =>
+    d.toLocaleString('sk-SK', {
+      timeZone: 'Europe/Bratislava',
+      day: 'numeric',
+      month: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  return `${f(a)} – ${f(b)}`;
+};
 
 export { openShiftOf };

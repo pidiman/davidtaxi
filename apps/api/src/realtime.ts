@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { Server } from 'socket.io';
 import type { TokenUser } from './auth.js';
+import { audit } from './log.js';
 
 let io: Server | null = null;
 
@@ -27,6 +28,14 @@ export function attachRealtime(app: FastifyInstance) {
     const user = socket.data.user as TokenUser;
     if (user.role === 'driver') socket.join(`driver:${user.id}`);
     else socket.join('dispatch');
+    audit('socket.connected', `Pripojený: ${user.name} (${user.role})`, { userId: user.id, role: user.role });
+    socket.on('disconnect', (reason) => {
+      audit('socket.disconnected', `Odpojený: ${user.name} (${user.role}) – ${reason}`, {
+        userId: user.id,
+        role: user.role,
+        reason,
+      });
+    });
   });
 }
 

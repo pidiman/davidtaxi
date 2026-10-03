@@ -6,6 +6,7 @@ import { type Ride, ridePoints, rides, users, vehicles } from '../db/schema.js';
 import { env } from '../env.js';
 import { estimateRide } from '../estimate.js';
 import { acceptSegment, haversineKm } from '../geo.js';
+import { audit, byFields, warn, who } from '../log.js';
 import { sendPush } from '../push.js';
 import { emitDispatch, emitDriver } from '../realtime.js';
 import { HttpError, num, str } from '../util.js';
@@ -116,6 +117,7 @@ export async function rideRoutes(app: FastifyInstance) {
         createdById: req.user.id,
       })
       .returning();
+    audit('ride.created', `Jazda #${r.id} vytvorená – ${who(req)}`, { rideId: r.id, ...byFields(req) });
     scheduleEstimate(r.id);
     return broadcastRide(r.id);
   });
@@ -135,6 +137,19 @@ export async function rideRoutes(app: FastifyInstance) {
       .set({ status: 'assigned', driverId, vehicleId: d.vehicleId, assignedAt: new Date() })
       .where(eq(rides.id, id));
     const view = await broadcastRide(id, r.driverId);
+    audit(
+      'ride.assigned',
+      r.driverId && r.driverId !== driverId
+        ? `Jazda #${id} preradená na ${d.name} (auto ${view?.vehicleCallsign ?? '?'}) – ${who(req)}`
+        : `Jazda #${id} poslaná vodičovi ${d.name} (auto ${view?.vehicleCallsign ?? '?'}) – ${who(req)}`,
+      {
+        rideId: id,
+        driverId,
+        prevDriverId: r.driverId ?? undefined,
+        vehicleId: d.vehicleId,
+        ...byFields(req),
+      },
+    );
     await sendPush(driverId, {
       title: '🚕 NOVÁ JAZDA – otvor appku',
       body: `${r.pickupAddress} → ${r.dropoffAddress}`,
@@ -150,6 +165,12 @@ export async function rideRoutes(app: FastifyInstance) {
     if (!r) throw new HttpError(404, 'Jazda neexistuje');
     if (!OPEN.includes(r.status)) throw new HttpError(409, 'Jazda je už uzavretá');
     await db.update(rides).set({ status: 'cancelled', finishedAt: new Date() }).where(eq(rides.id, id));
+    audit('ride.cancelled', `Jazda #${id} zrušená (bola v stave ${r.status}) – ${who(req)}`, {
+      rideId: id,
+      prevStatus: r.status,
+      driverId: r.driverId ?? undefined,
+      ...byFields(req),
+    });
     if (r.driverId && r.status !== 'new') {
       await sendPush(r.driverId, { title: 'Jazda zrušená', body: r.pickupAddress, url: '/driver' });
       await refreshDriverAvailability(r.driverId);
@@ -184,6 +205,12 @@ export async function rideRoutes(app: FastifyInstance) {
     const [cur] = await db.select({ s: users.driverStatus }).from(users).where(eq(users.id, req.user.id));
     if (cur?.s === 'busy') throw new HttpError(409, 'Počas jazdy nemôžeš zmeniť stav');
     await setDriverStatus(req.user.id, s);
+    if (cur?.s !== s)
+      audit('driver.status', `${req.user.name}: ${s === 'break' ? 'pauza' : 'voľný'}`, {
+        driverId: req.user.id,
+        status: s,
+        prev: cur?.s,
+      });
     return driverView(req.user.id);
   });
 
@@ -223,6 +250,11 @@ export async function rideRoutes(app: FastifyInstance) {
       })
       .returning();
     await setDriverStatus(req.user.id, 'busy');
+    audit('ride.street', `Jazda #${r.id} z ulice – ${req.user.name}`, {
+      rideId: r.id,
+      driverId: req.user.id,
+      vehicleId: me.vehicleId,
+    });
     scheduleEstimate(r.id);
     const view = await broadcastRide(r.id);
     emitDispatch('ride:street', {
@@ -237,6 +269,16 @@ export async function rideRoutes(app: FastifyInstance) {
     const r = await ownRide(Number(req.params.id), req.user.id, ['assigned']);
     await db.update(rides).set({ status: 'accepted', acceptedAt: new Date() }).where(eq(rides.id, r.id));
     await setDriverStatus(req.user.id, 'busy');
+    const waitS = r.assignedAt ? Math.round((Date.now() - r.assignedAt.getTime()) / 1000) : undefined;
+    audit(
+      'ride.accepted',
+      `Jazda #${r.id} prijatá – ${req.user.name}${waitS !== undefined ? ` po ${waitS} s` : ''}`,
+      {
+        rideId: r.id,
+        driverId: req.user.id,
+        reactionS: waitS,
+      },
+    );
     return broadcastRide(r.id);
   });
 
@@ -246,6 +288,10 @@ export async function rideRoutes(app: FastifyInstance) {
       .update(rides)
       .set({ status: 'new', driverId: null, vehicleId: null, assignedAt: null })
       .where(eq(rides.id, r.id));
+    audit('ride.rejected', `Jazda #${r.id} odmietnutá – ${req.user.name}, vracia sa medzi čakajúce`, {
+      rideId: r.id,
+      driverId: req.user.id,
+    });
     emitDispatch('ride:rejected', { id: r.id, driverName: req.user.name });
     await broadcastRide(r.id, req.user.id);
     return { ok: true };
@@ -254,6 +300,10 @@ export async function rideRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string } }>('/api/driver/rides/:id/arrived', driver, async (req) => {
     const r = await ownRide(Number(req.params.id), req.user.id, ['accepted']);
     await db.update(rides).set({ status: 'arrived' }).where(eq(rides.id, r.id));
+    audit('ride.arrived', `Jazda #${r.id}: ${req.user.name} je na mieste A`, {
+      rideId: r.id,
+      driverId: req.user.id,
+    });
     return broadcastRide(r.id);
   });
 
@@ -268,6 +318,10 @@ export async function rideRoutes(app: FastifyInstance) {
       .update(rides)
       .set({ status: 'in_progress', startedAt: new Date(), distanceKm: 0 })
       .where(eq(rides.id, r.id));
+    audit('ride.started', `Jazda #${r.id} začala – ${req.user.name}`, {
+      rideId: r.id,
+      driverId: req.user.id,
+    });
     return broadcastRide(r.id);
   });
 
@@ -279,6 +333,12 @@ export async function rideRoutes(app: FastifyInstance) {
       .update(rides)
       .set({ status: 'completed', finishedAt: new Date(), price })
       .where(eq(rides.id, r.id));
+    const mins = r.startedAt ? Math.round((Date.now() - r.startedAt.getTime()) / 60000) : undefined;
+    audit(
+      'ride.completed',
+      `Jazda #${r.id} dokončená – ${req.user.name}, ${km.toFixed(1)} km, ${price.toFixed(2)} €${mins !== undefined ? `, ${mins} min` : ''}`,
+      { rideId: r.id, driverId: req.user.id, km: Math.round(km * 10) / 10, price, minutes: mins },
+    );
     await refreshDriverAvailability(req.user.id);
     return broadcastRide(r.id);
   });
@@ -373,6 +433,11 @@ export function startAssignReminders() {
         const n = reminded.get(key) ?? 0;
         if (!r.driverId || n >= 6) continue;
         reminded.set(key, n + 1);
+        audit('ride.reminder', `Jazda #${r.id}: pripomienka ${n + 1}/6 vodičovi #${r.driverId} (neprijatá)`, {
+          rideId: r.id,
+          driverId: r.driverId,
+          attempt: n + 1,
+        });
         const mins = r.assignedAt ? Math.round((Date.now() - r.assignedAt.getTime()) / 60000) : 0;
         await sendPush(r.driverId, {
           title: `Nová jazda stále čaká${mins ? ` (${mins} min)` : ''}`,
@@ -381,8 +446,8 @@ export function startAssignReminders() {
           tag: `ride-${r.id}`,
         });
       }
-    } catch {
-      /* ďalší pokus o 30 s */
+    } catch (err) {
+      warn('reminder.error', 'Pripomienky jázd zlyhali, ďalší pokus o 30 s', { err: String(err) });
     }
   }, 30_000);
   timer.unref();
@@ -394,5 +459,7 @@ function scheduleEstimate(id: number) {
     .then(async (changed) => {
       if (changed) await broadcastRide(id);
     })
-    .catch(() => {});
+    .catch((err) =>
+      warn('estimate.error', `Odhad vzdialenosti pre jazdu #${id} zlyhal`, { rideId: id, err: String(err) }),
+    );
 }

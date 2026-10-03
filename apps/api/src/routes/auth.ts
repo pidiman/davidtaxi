@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { requireRole } from '../auth.js';
 import { db } from '../db/index.js';
 import { users } from '../db/schema.js';
+import { audit, warn } from '../log.js';
 import { str } from '../util.js';
 import { publicUser } from './admin.js';
 
@@ -16,6 +17,7 @@ export async function authRoutes(app: FastifyInstance) {
     const ip = req.ip;
     const f = failures.get(ip);
     if (f && f.until > Date.now() && f.count >= 10) {
+      warn('auth.blocked', `Prihlásenie z ${ip} zablokované (príliš veľa pokusov)`, { ip });
       return reply.code(429).send({ error: 'Príliš veľa pokusov, skús o 15 minút' });
     }
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -26,9 +28,16 @@ export async function authRoutes(app: FastifyInstance) {
       const cur = f && f.until > Date.now() ? f : { count: 0, until: Date.now() + WINDOW_MS };
       cur.count++;
       failures.set(ip, cur);
+      warn(
+        'auth.failed',
+        `Neúspešné prihlásenie "${username}" z ${ip}${!u ? ' (neexistuje)' : !u.active ? ' (deaktivovaný)' : ' (zlé heslo)'} – pokus ${cur.count}/10`,
+        { username, ip, attempt: cur.count },
+      );
+      req.errorMsg = 'nesprávne meno alebo heslo';
       return reply.code(401).send({ error: 'Nesprávne meno alebo heslo' });
     }
     failures.delete(ip);
+    audit('auth.login', `Prihlásený ${u.name} (${u.role}) z ${ip}`, { userId: u.id, role: u.role, ip });
     const token = app.jwt.sign({ id: u.id, role: u.role, name: u.name });
     return { token, user: publicUser(u) };
   });

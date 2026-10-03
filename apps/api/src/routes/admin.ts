@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { DISPATCH, requireRole } from '../auth.js';
 import { db } from '../db/index.js';
 import { type Role, rides, shifts, type User, users, type Vehicle, vehicles } from '../db/schema.js';
+import { audit, byFields, who } from '../log.js';
 import { HttpError, num, str } from '../util.js';
 import { photoUrl } from './shifts.js';
 
@@ -118,6 +119,11 @@ export async function adminRoutes(app: FastifyInstance) {
         role,
       })
       .returning();
+    audit('user.created', `Používateľ ${u.name} (${u.role}, @${u.username}) vytvorený – ${who(req)}`, {
+      userId: u.id,
+      role: u.role,
+      ...byFields(req),
+    });
     return publicUser(u);
   });
 
@@ -151,6 +157,14 @@ export async function adminRoutes(app: FastifyInstance) {
     if (patch.active === false) patch.driverStatus = 'offline';
     const [u] = await db.update(users).set(patch).where(eq(users.id, id)).returning();
     if (!u) throw new HttpError(404, 'Používateľ neexistuje');
+    const changed = Object.keys(patch)
+      .filter((k) => k !== 'driverStatus')
+      .map((k) => (k === 'passwordHash' ? 'password' : k));
+    audit(
+      'user.updated',
+      `Používateľ ${u.name} upravený (${changed.join(', ')})${patch.active === false ? ' – DEAKTIVOVANÝ' : patch.active === true ? ' – aktivovaný' : ''} – ${who(req)}`,
+      { userId: id, changes: changed, ...byFields(req) },
+    );
     return publicUser(u);
   });
 
@@ -165,8 +179,12 @@ export async function adminRoutes(app: FastifyInstance) {
     if (Number(n) + Number(m) > 0) {
       throw new HttpError(409, 'Používateľ má jazdy alebo smeny v histórii – namiesto zmazania ho deaktivuj');
     }
-    const del = await db.delete(users).where(eq(users.id, id)).returning({ id: users.id });
+    const del = await db.delete(users).where(eq(users.id, id)).returning({ id: users.id, name: users.name });
     if (!del.length) throw new HttpError(404, 'Používateľ neexistuje');
+    audit('user.deleted', `Používateľ ${del[0].name} (#${id}) zmazaný – ${who(req)}`, {
+      userId: id,
+      ...byFields(req),
+    });
     return { ok: true };
   });
 
@@ -200,6 +218,14 @@ export async function adminRoutes(app: FastifyInstance) {
         .where(eq(vehicles.id, Number(req.params.id)))
         .returning(vehiclePublicCols);
       if (!v) throw new HttpError(404, 'Auto neexistuje');
+      audit(
+        'vehicle.photo',
+        `Auto ${v.callsign}: nová fotka (${Math.round(buf.length / 1024)} kB) – ${who(req)}`,
+        {
+          vehicleId: v.id,
+          ...byFields(req),
+        },
+      );
       return publicVehicle(v);
     },
   );
@@ -211,6 +237,10 @@ export async function adminRoutes(app: FastifyInstance) {
       .where(eq(vehicles.id, Number(req.params.id)))
       .returning(vehiclePublicCols);
     if (!v) throw new HttpError(404, 'Auto neexistuje');
+    audit('vehicle.photo_deleted', `Auto ${v.callsign}: fotka zmazaná – ${who(req)}`, {
+      vehicleId: v.id,
+      ...byFields(req),
+    });
     return publicVehicle(v);
   });
 
@@ -234,6 +264,10 @@ export async function adminRoutes(app: FastifyInstance) {
       .insert(vehicles)
       .values(fields as typeof vehicles.$inferInsert)
       .returning(vehiclePublicCols);
+    audit('vehicle.created', `Auto ${v.callsign} (${v.plate}) pridané – ${who(req)}`, {
+      vehicleId: v.id,
+      ...byFields(req),
+    });
     return publicVehicle(v);
   });
 
@@ -243,6 +277,15 @@ export async function adminRoutes(app: FastifyInstance) {
     if (fields.callsign) await assertUniqueCallsign(fields.callsign, id);
     const [v] = await db.update(vehicles).set(fields).where(eq(vehicles.id, id)).returning(vehiclePublicCols);
     if (!v) throw new HttpError(404, 'Auto neexistuje');
+    audit(
+      'vehicle.updated',
+      `Auto ${v.callsign} upravené (${Object.keys(fields).join(', ')}) – ${who(req)}`,
+      {
+        vehicleId: id,
+        changes: Object.keys(fields),
+        ...byFields(req),
+      },
+    );
     return publicVehicle(v);
   });
 
@@ -252,8 +295,15 @@ export async function adminRoutes(app: FastifyInstance) {
     const [{ m }] = await db.select({ m: count() }).from(shifts).where(eq(shifts.vehicleId, id));
     if (Number(n) + Number(m) > 0)
       throw new HttpError(409, 'Auto má jazdy v histórii – namiesto zmazania ho vyraď (deaktivuj)');
-    const del = await db.delete(vehicles).where(eq(vehicles.id, id)).returning({ id: vehicles.id });
+    const del = await db
+      .delete(vehicles)
+      .where(eq(vehicles.id, id))
+      .returning({ id: vehicles.id, callsign: vehicles.callsign });
     if (!del.length) throw new HttpError(404, 'Auto neexistuje');
+    audit('vehicle.deleted', `Auto ${del[0].callsign} (#${id}) zmazané – ${who(req)}`, {
+      vehicleId: id,
+      ...byFields(req),
+    });
     return { ok: true }; // vodičom s týmto autom sa vehicle_id nastaví na NULL (FK on delete set null)
   });
 }

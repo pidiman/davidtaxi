@@ -152,6 +152,23 @@ Portainer potom stack sám buildne zo zdrojákov.
 
 ---
 
+## Logy
+
+```bash
+cd /opt/davidtaxi
+docker compose logs -f --tail=200 app                       # všetko
+docker compose logs --since 24h app | grep '"evt":"ride\.'  # len jazdy za 24 h
+docker compose logs app | grep '"level":[45]0'              # len varovania a chyby
+```
+
+Každý riadok je JSON (`level` 30 = info, 40 = warn, 50 = error), čitateľný text je v `msg`, typ udalosti v `evt`.
+
+- **Biznis udalosti (info):** prihlásenie, `ride.*` (created, assigned, accepted, rejected, arrived, started, completed, cancelled, street, returned, reminder), `shift.*` (started, ended, takeover, km_backfill, edited, ended_by_dispatch), `schedule.*`, `user.*`, `vehicle.*`, pripojenie/odpojenie socketu. Mená a adresy zákazníkov sa nelogujú – len ID jazdy.
+- **Varovania (warn):** neúspešné prihlásenie, zamietnuté requesty 4xx s dôvodom, nedoručený push (vodič nemá povolené notifikácie / odber vypršal), výpadok OSRM alebo geokódera.
+- **Chyby (error):** 5xx so stack trace.
+- GPS polohy a health check sa nelogujú. Úspešné requesty len pri `LOG_LEVEL=debug` (v `.env`).
+- Rotácia: max 5 × 10 MB na kontajner (`docker-compose.yml`, `x-logging`).
+
 ## Lokálny vývoj na Macu (bez deployu)
 
 Zmeny skúšaj lokálne a na server nasadzuj až hotovú verziu. Lokálne sa nič nebuildí: API aj web sa po uložení súboru reštartujú alebo obnovia za ~1 s.
