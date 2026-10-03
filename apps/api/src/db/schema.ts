@@ -1,5 +1,6 @@
 import {
   boolean,
+  date,
   doublePrecision,
   index,
   integer,
@@ -30,7 +31,17 @@ export const vehicles = pgTable('vehicles', {
   id: serial('id').primaryKey(),
   callsign: text('callsign').notNull().unique(), // číslo auta, napr. "07"
   plate: text('plate').notNull(),
-  model: text('model').notNull(),
+  model: text('model').notNull(), // značka a model, napr. "Škoda Superb"
+  color: text('color'),
+  year: integer('year'),
+  seats: integer('seats').notNull().default(4), // miesta pre cestujúcich
+  bodyType: text('body_type'), // sedan / kombi / MPV / van
+  fuel: text('fuel'), // benzín / nafta / LPG / hybrid / elektro
+  vin: text('vin'),
+  stkUntil: date('stk_until', { mode: 'string' }), // technická kontrola platná do
+  ekUntil: date('ek_until', { mode: 'string' }), // emisná kontrola platná do
+  insuranceUntil: date('insurance_until', { mode: 'string' }), // PZP platné do
+  note: text('note'),
   active: boolean('active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -41,6 +52,8 @@ export const users = pgTable('users', {
   passwordHash: text('password_hash').notNull(),
   name: text('name').notNull(),
   phone: text('phone'),
+  email: text('email'),
+  note: text('note'),
   role: roleEnum('role').notNull(),
   active: boolean('active').notNull().default(true),
   vehicleId: integer('vehicle_id').references(() => vehicles.id, { onDelete: 'set null' }),
@@ -111,5 +124,6 @@ export const pushSubscriptions = pgTable('push_subscriptions', {
 });
 
 export type User = typeof users.$inferSelect;
+export type Vehicle = typeof vehicles.$inferSelect;
 export type Ride = typeof rides.$inferSelect;
 export type Role = (typeof roleEnum.enumValues)[number];

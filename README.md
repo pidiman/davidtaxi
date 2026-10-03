@@ -2,10 +2,12 @@
 
 Dispečing pre taxislužbu: **admin / dispečer dashboard** + **PWA pre vodičov**.
 
-- Admin vytvára dispečerov, vodičov a autá.
+- Admin spravuje vodičov, dispečerov a autá (vytvorenie, úprava, deaktivácia, zmazanie). Pri autách eviduje farbu, rok, počet miest, karosériu, palivo, VIN a platnosť STK, EK a PZP s upozornením 30 dní pred koncom.
+  - Vodiča alebo auto s jazdami v histórii nemožno zmazať, len deaktivovať, aby história ostala úplná.
 - Dispečer (aj admin) prijíma objednávky, vidí autá na mape naživo a posiela jazdy vodičom.
 - Vodič dostane push notifikáciu, vidí trasu A → B a meno a telefón zákazníka. Jazdu prijme alebo odmietne.
 - **Zákazník z ulice:** vodič v appke klikne *Zobrať zákazníka z ulice*. Bod A sa predvyplní adresou podľa GPS (dá sa prepísať), bod B zadá s našepkávaním. Jazda sa hneď spustí, dispečing dostane upozornenie a auto sa zobrazí ako obsadené (v tabuľkách so štítkom *z ulice*).
+- **Navigácia priamo v appke vodiča:** mapa s trasou, ďalší manéver po slovensky, hlasové pokyny, zostávajúci čas a čas príchodu, automatický prepočet trasy pri zídení z cesty. Google Maps zostáva ako záloha.
 - PWA posiela polohu každých 10 s (počas jazdy každých 5 s) a počíta km jazdy z GPS. Cena = max(minimálne jazdné, km × sadzba).
 
 | Vrstva | Technológia |
@@ -122,4 +124,7 @@ pnpm db:generate       # po zmene apps/api/src/db/schema.ts vygeneruje novú mig
 - **GPS na pozadí:** keď je appka na pozadí alebo je zhasnutý displej, prehliadač geolokáciu zastaví. Appka preto drží displej zapnutý (Wake Lock), kým je vodič online. Ak bude treba spoľahlivé sledovanie na pozadí, ďalší krok je zabaliť `/driver` do Capacitoru s natívnym background location.
 - **Km jazdy:** súčet úsekov medzi GPS bodmi. Body s presnosťou horšou ako 50 m, posuny pod 10 m a skoky nad 220 km/h sa ignorujú.
 - **Geokódovanie adries:** cez verejný OSM Nominatim (max 1 požiadavka za sekundu). Pri vyššej záťaži nastav `GEOCODER_URL` na vlastný Nominatim alebo Photon.
+- **Navigácia (OSRM):** predvolene sa používa verejný demo server `router.project-osrm.org`. Je bez záruky dostupnosti a má limit približne 1 požiadavka za sekundu, na pár áut stačí. Pre ostrú prevádzku nastav `OSRM_URL` na vlastný OSRM.
+  - Mapa musí pokrývať aj Rakúsko (letisko Viedeň). OSRM z kuriera má len Slovensko.
+  - Navigácia nemá dopravné informácie (zápchy) ani jazdné pruhy. Na dlhé trasy (Viedeň) môže vodič otvoriť Google Maps priamo z navigácie.
 - **Mapové dlaždice:** OpenStreetMap. Pri väčšej prevádzke nastav pri builde `VITE_TILE_URL` na vlastný alebo komerčný tile server.

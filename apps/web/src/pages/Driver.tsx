@@ -1,13 +1,13 @@
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { AddressInput } from '../components/AddressInput';
 import { TaxiIcon, Wordmark } from '../components/Brand';
+import { DriverNav, type NavPos, type NavTarget } from '../components/DriverNav';
 import {
   api,
   type DriverStatus,
   type Driver as DriverT,
   fmtEur,
   fmtKm,
-  navHref,
   type Ride,
   STATUS_LABEL,
   telHref,
@@ -49,6 +49,8 @@ export function Driver() {
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [street, setStreet] = useState(false);
+  const [pos, setPos] = useState<NavPos | null>(null);
+  const [nav, setNav] = useState<NavTarget | null>(null);
   const lastSent = useRef(0);
   const lastPos = useRef<Pos | null>(null);
 
@@ -101,6 +103,12 @@ export function Driver() {
           lng: pos.coords.longitude,
           accuracy: pos.coords.accuracy,
         };
+        setPos({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+          heading: Number.isFinite(pos.coords.heading) ? pos.coords.heading : null,
+        });
         const interval = inProgress ? SEND_EVERY_RIDE_MS : SEND_EVERY_MS;
         setGps((g) => ({ accuracy: pos.coords.accuracy, sentAt: g?.sentAt ?? null }));
         if (Date.now() - lastSent.current < interval) return;
@@ -269,7 +277,7 @@ export function Driver() {
       )}
 
       {street ? null : current ? (
-        <RideCard ride={current} now={now} busy={busy} onAct={act} />
+        <RideCard ride={current} now={now} busy={busy} onAct={act} onNavigate={setNav} />
       ) : (
         !finished && (
           <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center text-muted">
@@ -322,6 +330,8 @@ export function Driver() {
         </div>
       )}
 
+      {nav && <DriverNav target={nav} pos={pos} onClose={() => setNav(null)} />}
+
       <button type="button" onClick={logout} className="mt-auto self-center py-2 text-sm text-muted">
         Odhlásiť sa
       </button>
@@ -360,12 +370,28 @@ function RideCard({
   now,
   busy,
   onAct,
+  onNavigate,
 }: {
   ride: Ride;
   now: number;
   busy: boolean;
   onAct: (r: Ride, a: 'accept' | 'reject' | 'arrived' | 'start' | 'finish') => void;
+  onNavigate: (t: NavTarget) => void;
 }) {
+  const navA = () =>
+    onNavigate({
+      label: 'Nástup (A)',
+      address: ride.pickupAddress,
+      lat: ride.pickupLat,
+      lng: ride.pickupLng,
+    });
+  const navB = () =>
+    onNavigate({
+      label: 'Cieľ (B)',
+      address: ride.dropoffAddress,
+      lat: ride.dropoffLat,
+      lng: ride.dropoffLng,
+    });
   const s = ride.status;
   const duration = ride.startedAt
     ? Math.max(0, Math.floor((now - new Date(ride.startedAt).getTime()) / 1000))
@@ -411,18 +437,10 @@ function RideCard({
         <div className="flex flex-1 flex-col gap-4">
           <AddressRow
             address={ride.pickupAddress}
-            lat={ride.pickupLat}
-            lng={ride.pickupLng}
             dim={toB}
-            showNav={!toB && s !== 'assigned'}
+            onNav={!toB && s !== 'assigned' ? navA : undefined}
           />
-          <AddressRow
-            address={ride.dropoffAddress}
-            lat={ride.dropoffLat}
-            lng={ride.dropoffLng}
-            dim={false}
-            showNav={toB}
-          />
+          <AddressRow address={ride.dropoffAddress} dim={false} onNav={toB ? navB : undefined} />
         </div>
       </div>
 
@@ -458,6 +476,29 @@ function RideCard({
 
       {ride.note && (
         <div className="rounded-xl bg-taxi-dim px-3.5 py-3 text-sm text-[#f2e3b0]">{ride.note}</div>
+      )}
+
+      {(s === 'accepted' || s === 'in_progress') && (
+        <button
+          type="button"
+          onClick={s === 'accepted' ? navA : navB}
+          className="btn-outline h-14 rounded-2xl text-base font-bold uppercase"
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M3 11l18-8-8 18-2-8z" />
+          </svg>
+          {s === 'accepted' ? 'Navigovať k zákazníkovi' : 'Navigovať do cieľa'}
+        </button>
       )}
 
       <div className="mt-auto flex gap-2.5">
@@ -516,27 +557,14 @@ function RideCard({
   );
 }
 
-function AddressRow({
-  address,
-  lat,
-  lng,
-  dim,
-  showNav,
-}: {
-  address: string;
-  lat: number | null;
-  lng: number | null;
-  dim: boolean;
-  showNav: boolean;
-}) {
+function AddressRow({ address, dim, onNav }: { address: string; dim: boolean; onNav?: () => void }) {
   return (
     <div className="flex items-center gap-2">
       <div className={`min-w-0 flex-1 text-lg font-bold ${dim ? 'text-muted' : ''}`}>{address}</div>
-      {showNav && (
-        <a
-          href={navHref(address, lat, lng)}
-          target="_blank"
-          rel="noreferrer"
+      {onNav && (
+        <button
+          type="button"
+          onClick={onNav}
           aria-label="Navigovať"
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-raised"
         >
@@ -553,7 +581,7 @@ function AddressRow({
           >
             <path d="M3 11l18-8-8 18-2-8z" />
           </svg>
-        </a>
+        </button>
       )}
     </div>
   );

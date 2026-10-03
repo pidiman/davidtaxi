@@ -1,24 +1,51 @@
-import { type FormEvent, useCallback, useEffect, useState } from 'react';
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { Header } from '../components/Header';
-import { api, type Role, type User, type Vehicle } from '../lib/api';
+import { Modal } from '../components/Modal';
+import { api, DRIVER_LABEL, type Role, type User, type Vehicle } from '../lib/api';
 import { useAuth } from '../lib/auth';
 
+type Tab = 'drivers' | 'vehicles' | 'staff';
 const ROLE_LABEL: Record<Role, string> = { admin: 'Admin', dispatcher: 'Dispečer', driver: 'Vodič' };
+const FUELS = ['benzín', 'nafta', 'LPG', 'CNG', 'hybrid', 'plug-in hybrid', 'elektro'];
+const BODIES = ['sedan', 'liftback', 'kombi', 'MPV', 'SUV', 'van'];
+
+// ---------- STK / EK / PZP: platnosť ----------
+type Validity = 'ok' | 'soon' | 'expired' | 'none';
+function validity(date: string | null): Validity {
+  if (!date) return 'none';
+  const days = (new Date(`${date}T23:59:59`).getTime() - Date.now()) / 86_400_000;
+  if (days < 0) return 'expired';
+  if (days <= 30) return 'soon';
+  return 'ok';
+}
+const fmtDate = (d: string | null) => (d ? new Date(`${d}T12:00:00`).toLocaleDateString('sk-SK') : '–');
+
+function ValidityChip({ label, date }: { label: string; date: string | null }) {
+  const v = validity(date);
+  const cls = {
+    ok: 'border-line text-soft',
+    soon: 'border-taxi/70 bg-taxi-dim text-taxi',
+    expired: 'border-red-400/70 bg-red-950/60 text-red-200',
+    none: 'border-line text-muted',
+  }[v];
+  const suffix = v === 'expired' ? ' · prepadnuté' : v === 'soon' ? ' · končí' : '';
+  return (
+    <span className={`rounded-full border px-2 py-0.5 text-xs whitespace-nowrap ${cls}`}>
+      {label} {fmtDate(date)}
+      {suffix}
+    </span>
+  );
+}
 
 export function Admin() {
   const { user: me } = useAuth();
+  const [tab, setTab] = useState<Tab>('drivers');
   const [users, setUsers] = useState<User[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [msg, setMsg] = useState('');
-  const [uf, setUf] = useState({
-    name: '',
-    username: '',
-    password: '',
-    phone: '',
-    role: 'driver' as Role,
-    vehicleId: '',
-  });
-  const [vf, setVf] = useState({ callsign: '', plate: '', model: '' });
+  const [msg, setMsg] = useState<{ text: string; error?: boolean } | null>(null);
+  const [editUser, setEditUser] = useState<Partial<User> | null>(null);
+  const [editVehicle, setEditVehicle] = useState<Partial<Vehicle> | null>(null);
+  const [q, setQ] = useState('');
 
   const load = useCallback(async () => {
     const [u, v] = await Promise.all([api<User[]>('/api/users'), api<Vehicle[]>('/api/vehicles')]);
@@ -27,57 +54,246 @@ export function Admin() {
   }, []);
 
   useEffect(() => {
-    load().catch((e) => setMsg(e.message));
+    load().catch((e) => setMsg({ text: e.message, error: true }));
   }, [load]);
 
   async function run(fn: () => Promise<unknown>, ok: string) {
     try {
       await fn();
-      setMsg(ok);
+      setMsg({ text: ok });
       await load();
+      return true;
     } catch (e) {
-      setMsg((e as Error).message);
+      setMsg({ text: (e as Error).message, error: true });
+      return false;
     }
   }
 
-  function createUser(e: FormEvent) {
-    e.preventDefault();
-    run(async () => {
-      await api('/api/users', {
-        body: { ...uf, vehicleId: uf.vehicleId ? Number(uf.vehicleId) : undefined },
-      });
-      setUf({ name: '', username: '', password: '', phone: '', role: uf.role, vehicleId: '' });
-    }, 'Používateľ vytvorený');
-  }
+  const vehicleById = useMemo(() => new Map(vehicles.map((v) => [v.id, v])), [vehicles]);
+  const match = (s: (string | null | undefined)[]) =>
+    !q || s.some((x) => x?.toLowerCase().includes(q.toLowerCase()));
+  const drivers = users.filter((u) => u.role === 'driver' && match([u.name, u.username, u.phone]));
+  const staff = users.filter((u) => u.role !== 'driver' && match([u.name, u.username, u.phone]));
+  const cars = vehicles.filter((v) => match([v.callsign, v.plate, v.model, v.color]));
+  const expiring = vehicles.filter(
+    (v) =>
+      v.active &&
+      [v.stkUntil, v.ekUntil, v.insuranceUntil].some((d) => ['soon', 'expired'].includes(validity(d))),
+  );
 
-  function createVehicle(e: FormEvent) {
-    e.preventDefault();
-    run(async () => {
-      await api('/api/vehicles', { body: vf });
-      setVf({ callsign: '', plate: '', model: '' });
-    }, 'Auto pridané');
-  }
+  const deleteUser = (u: User) =>
+    confirm(`Natrvalo zmazať ${u.name}?`) &&
+    run(() => api(`/api/users/${u.id}`, { method: 'DELETE' }), 'Zmazané');
+  const deleteVehicle = (v: Vehicle) =>
+    confirm(`Natrvalo zmazať auto ${v.callsign} (${v.plate})?`) &&
+    run(() => api(`/api/vehicles/${v.id}`, { method: 'DELETE' }), 'Auto zmazané');
 
-  const patchUser = (id: number, body: Record<string, unknown>, ok = 'Uložené') =>
-    run(() => api(`/api/users/${id}`, { method: 'PATCH', body }), ok);
+  const tabBtn = (t: Tab, label: string, n: number) => (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={tab === t}
+      onClick={() => setTab(t)}
+      className={`rounded-lg px-4 py-2.5 font-semibold ${tab === t ? 'bg-taxi text-black' : 'text-soft hover:bg-raised'}`}
+    >
+      {label} <span className={tab === t ? 'text-black/60' : 'text-muted'}>{n}</span>
+    </button>
+  );
 
   return (
     <div className="min-h-screen bg-ink">
       <Header />
-      <main className="mx-auto flex max-w-[1400px] flex-wrap items-start gap-4 p-6">
+      <main className="mx-auto flex max-w-[1400px] flex-col gap-4 p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div role="tablist" className="flex flex-wrap gap-1.5 rounded-xl bg-panel p-1.5">
+            {tabBtn('drivers', 'Vodiči', users.filter((u) => u.role === 'driver').length)}
+            {tabBtn('vehicles', 'Autá', vehicles.length)}
+            {tabBtn('staff', 'Dispečeri a admini', users.filter((u) => u.role !== 'driver').length)}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <input
+              className="field w-56"
+              placeholder="Hľadať…"
+              aria-label="Hľadať"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+            {tab === 'vehicles' ? (
+              <button type="button" className="btn-primary" onClick={() => setEditVehicle({ seats: 4 })}>
+                + Nové auto
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() =>
+                  setEditUser({ role: tab === 'drivers' ? 'driver' : 'dispatcher', active: true })
+                }
+              >
+                + {tab === 'drivers' ? 'Nový vodič' : 'Nový dispečer'}
+              </button>
+            )}
+          </div>
+        </div>
+
         {msg && (
           <button
             type="button"
-            onClick={() => setMsg('')}
-            className="w-full rounded-xl bg-taxi-dim px-4 py-3 text-left text-sm text-[#f2e3b0]"
+            onClick={() => setMsg(null)}
+            className={`rounded-xl px-4 py-3 text-left text-sm ${msg.error ? 'bg-red-950/70 text-red-100' : 'bg-taxi-dim text-[#f2e3b0]'}`}
           >
-            {msg}
+            {msg.text}
           </button>
         )}
 
-        <section className="card flex min-w-0 flex-[999_1_640px] flex-col gap-3">
-          <h2 className="h2">Používatelia</h2>
-          <div className="overflow-x-auto">
+        {expiring.length > 0 && tab !== 'staff' && (
+          <div className="rounded-xl border border-taxi/50 bg-taxi-dim px-4 py-3 text-sm text-[#f2e3b0]">
+            Pozor – STK, EK alebo PZP končí do 30 dní alebo už prepadlo:{' '}
+            {expiring.map((v) => `${v.callsign} (${v.plate})`).join(', ')}
+          </div>
+        )}
+
+        {/* ---------------- VODIČI ---------------- */}
+        {tab === 'drivers' && (
+          <section className="card overflow-x-auto">
+            <table className="w-full min-w-[860px] border-collapse text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-wider text-muted">
+                  <th className="px-2.5 py-2">Meno</th>
+                  <th className="px-2.5 py-2">Login</th>
+                  <th className="px-2.5 py-2">Telefón</th>
+                  <th className="px-2.5 py-2">Auto</th>
+                  <th className="px-2.5 py-2">Teraz</th>
+                  <th className="px-2.5 py-2 text-right">Jazdy</th>
+                  <th className="px-2.5 py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {drivers.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-2.5 py-4 text-muted">
+                      Žiadni vodiči.
+                    </td>
+                  </tr>
+                )}
+                {drivers.map((u) => {
+                  const v = u.vehicleId ? vehicleById.get(u.vehicleId) : undefined;
+                  return (
+                    <tr key={u.id} className={`border-t border-[#2a2a2a] ${u.active ? '' : 'opacity-50'}`}>
+                      <td className="px-2.5 py-2.5">
+                        <div className="font-semibold">{u.name}</div>
+                        {!u.active && <div className="text-xs text-muted">deaktivovaný</div>}
+                      </td>
+                      <td className="px-2.5 py-2.5 text-soft">{u.username}</td>
+                      <td className="px-2.5 py-2.5 text-soft">{u.phone ?? '–'}</td>
+                      <td className="px-2.5 py-2.5">
+                        {v ? (
+                          <span>
+                            <b>{v.callsign}</b> <span className="text-muted">· {v.plate}</span>
+                          </span>
+                        ) : (
+                          <span className="text-muted">bez auta</span>
+                        )}
+                      </td>
+                      <td className="px-2.5 py-2.5">{DRIVER_LABEL[u.driverStatus]}</td>
+                      <td className="px-2.5 py-2.5 text-right tabular-nums">{u.rideCount ?? 0}</td>
+                      <RowActions
+                        onEdit={() => setEditUser(u)}
+                        toggleLabel={u.active ? 'Deaktivovať' : 'Aktivovať'}
+                        onToggle={() =>
+                          run(
+                            () => api(`/api/users/${u.id}`, { method: 'PATCH', body: { active: !u.active } }),
+                            u.active ? 'Vodič deaktivovaný' : 'Vodič aktivovaný',
+                          )
+                        }
+                        onDelete={() => deleteUser(u)}
+                        canDelete={(u.rideCount ?? 0) === 0}
+                      />
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </section>
+        )}
+
+        {/* ---------------- AUTÁ ---------------- */}
+        {tab === 'vehicles' && (
+          <section className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-3">
+            {cars.length === 0 && <p className="text-muted">Žiadne autá.</p>}
+            {cars.map((v) => {
+              const assigned = users.filter((u) => u.vehicleId === v.id);
+              return (
+                <article key={v.id} className={`card flex flex-col gap-3 ${v.active ? '' : 'opacity-50'}`}>
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-taxi text-lg font-extrabold text-black">
+                      {v.callsign}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-display text-xl font-bold leading-tight">{v.model}</div>
+                      <div className="text-sm text-soft">
+                        {v.plate}
+                        {!v.active && ' · vyradené'}
+                      </div>
+                    </div>
+                  </div>
+                  <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                    <Spec k="Farba" v={v.color} />
+                    <Spec k="Rok" v={v.year} />
+                    <Spec k="Karoséria" v={v.bodyType} />
+                    <Spec k="Palivo" v={v.fuel} />
+                    <Spec k="Miesta" v={v.seats} />
+                    <Spec k="Jazdy" v={v.rideCount ?? 0} />
+                  </dl>
+                  <div className="flex flex-wrap gap-1.5">
+                    <ValidityChip label="STK" date={v.stkUntil} />
+                    <ValidityChip label="EK" date={v.ekUntil} />
+                    <ValidityChip label="PZP" date={v.insuranceUntil} />
+                  </div>
+                  <div className="text-sm text-muted">
+                    Vodiči: {assigned.length ? assigned.map((u) => u.name).join(', ') : 'nikto'}
+                  </div>
+                  {v.note && <div className="rounded-lg bg-ink px-3 py-2 text-sm text-soft">{v.note}</div>}
+                  <div className="mt-auto flex flex-wrap gap-2 border-t border-line pt-3">
+                    <button
+                      type="button"
+                      className="btn-outline px-3 py-1.5 text-sm"
+                      onClick={() => setEditVehicle(v)}
+                    >
+                      Upraviť
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-ghost px-3 py-1.5 text-sm"
+                      onClick={() =>
+                        run(
+                          () =>
+                            api(`/api/vehicles/${v.id}`, { method: 'PATCH', body: { active: !v.active } }),
+                          v.active ? 'Auto vyradené' : 'Auto znova v prevádzke',
+                        )
+                      }
+                    >
+                      {v.active ? 'Vyradiť' : 'Vrátiť do prevádzky'}
+                    </button>
+                    {(v.rideCount ?? 0) === 0 && (
+                      <button
+                        type="button"
+                        className="ml-auto px-2 py-1.5 text-sm text-red-300 hover:text-red-200"
+                        onClick={() => deleteVehicle(v)}
+                      >
+                        Zmazať
+                      </button>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </section>
+        )}
+
+        {/* ---------------- DISPEČERI A ADMINI ---------------- */}
+        {tab === 'staff' && (
+          <section className="card overflow-x-auto">
             <table className="w-full min-w-[720px] border-collapse text-sm">
               <thead>
                 <tr className="text-left text-xs uppercase tracking-wider text-muted">
@@ -85,201 +301,405 @@ export function Admin() {
                   <th className="px-2.5 py-2">Login</th>
                   <th className="px-2.5 py-2">Rola</th>
                   <th className="px-2.5 py-2">Telefón</th>
-                  <th className="px-2.5 py-2">Auto</th>
-                  <th className="px-2.5 py-2">Stav</th>
+                  <th className="px-2.5 py-2">E-mail</th>
                   <th className="px-2.5 py-2" />
                 </tr>
               </thead>
               <tbody>
-                {users.map((u) => (
+                {staff.map((u) => (
                   <tr key={u.id} className={`border-t border-[#2a2a2a] ${u.active ? '' : 'opacity-50'}`}>
-                    <td className="px-2.5 py-2.5 font-semibold">{u.name}</td>
+                    <td className="px-2.5 py-2.5 font-semibold">
+                      {u.name} {u.id === me?.id && <span className="text-xs text-taxi">(ty)</span>}
+                    </td>
                     <td className="px-2.5 py-2.5 text-soft">{u.username}</td>
                     <td className="px-2.5 py-2.5">{ROLE_LABEL[u.role]}</td>
                     <td className="px-2.5 py-2.5 text-soft">{u.phone ?? '–'}</td>
-                    <td className="px-2.5 py-2.5">
-                      {u.role === 'driver' ? (
-                        <select
-                          aria-label={`Auto pre ${u.name}`}
-                          className="field py-1.5"
-                          value={u.vehicleId ?? ''}
-                          onChange={(e) =>
-                            patchUser(u.id, { vehicleId: e.target.value ? Number(e.target.value) : null })
-                          }
-                        >
-                          <option value="">— bez auta —</option>
-                          {vehicles.map((v) => (
-                            <option key={v.id} value={v.id}>
-                              {v.callsign} · {v.plate}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        '–'
-                      )}
-                    </td>
-                    <td className="px-2.5 py-2.5">{u.active ? 'aktívny' : 'deaktivovaný'}</td>
-                    <td className="px-2.5 py-2.5 whitespace-nowrap text-right">
-                      <button
-                        type="button"
-                        className="mr-3 text-xs text-muted hover:text-text"
-                        onClick={() => {
-                          const p = prompt(`Nové heslo pre ${u.name} (min. 8 znakov):`);
-                          if (p) patchUser(u.id, { password: p }, 'Heslo zmenené');
-                        }}
-                      >
-                        Heslo
-                      </button>
-                      {u.id !== me?.id && (
-                        <button
-                          type="button"
-                          className="text-xs text-muted hover:text-text"
-                          onClick={() => patchUser(u.id, { active: !u.active })}
-                        >
-                          {u.active ? 'Deaktivovať' : 'Aktivovať'}
+                    <td className="px-2.5 py-2.5 text-soft">{u.email ?? '–'}</td>
+                    {u.id === me?.id ? (
+                      <td className="px-2.5 py-2.5 text-right">
+                        <button type="button" className="text-sm text-taxi" onClick={() => setEditUser(u)}>
+                          Upraviť
                         </button>
-                      )}
-                    </td>
+                      </td>
+                    ) : (
+                      <RowActions
+                        onEdit={() => setEditUser(u)}
+                        toggleLabel={u.active ? 'Deaktivovať' : 'Aktivovať'}
+                        onToggle={() =>
+                          run(
+                            () => api(`/api/users/${u.id}`, { method: 'PATCH', body: { active: !u.active } }),
+                            'Uložené',
+                          )
+                        }
+                        onDelete={() => deleteUser(u)}
+                        canDelete
+                      />
+                    )}
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
-        </section>
-
-        <aside className="flex min-w-0 max-w-[420px] flex-[1_1_320px] flex-col gap-4">
-          <form onSubmit={createUser} className="card flex flex-col gap-3">
-            <h2 className="h2">Nový používateľ</h2>
-            <label className="label">
-              Rola
-              <select
-                className="field"
-                value={uf.role}
-                onChange={(e) => setUf({ ...uf, role: e.target.value as Role })}
-              >
-                <option value="driver">Vodič</option>
-                <option value="dispatcher">Dispečer</option>
-                <option value="admin">Admin</option>
-              </select>
-            </label>
-            <label className="label">
-              Meno a priezvisko
-              <input
-                className="field"
-                required
-                value={uf.name}
-                onChange={(e) => setUf({ ...uf, name: e.target.value })}
-              />
-            </label>
-            <div className="flex gap-2.5">
-              <label className="label flex-1">
-                Login
-                <input
-                  className="field"
-                  required
-                  autoCapitalize="none"
-                  value={uf.username}
-                  onChange={(e) => setUf({ ...uf, username: e.target.value })}
-                />
-              </label>
-              <label className="label flex-1">
-                Heslo
-                <input
-                  className="field"
-                  required
-                  minLength={8}
-                  type="password"
-                  autoComplete="new-password"
-                  value={uf.password}
-                  onChange={(e) => setUf({ ...uf, password: e.target.value })}
-                />
-              </label>
-            </div>
-            <label className="label">
-              Telefón
-              <input
-                className="field"
-                type="tel"
-                value={uf.phone}
-                onChange={(e) => setUf({ ...uf, phone: e.target.value })}
-              />
-            </label>
-            {uf.role === 'driver' && (
-              <label className="label">
-                Auto
-                <select
-                  className="field"
-                  value={uf.vehicleId}
-                  onChange={(e) => setUf({ ...uf, vehicleId: e.target.value })}
-                >
-                  <option value="">— bez auta —</option>
-                  {vehicles.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.callsign} · {v.model} · {v.plate}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            <button type="submit" className="btn-primary py-3 uppercase">
-              Vytvoriť
-            </button>
-          </form>
-
-          <div className="card flex flex-col gap-3">
-            <h2 className="h2">Autá</h2>
-            {vehicles.length === 0 && <p className="m-0 text-sm text-muted">Zatiaľ žiadne autá.</p>}
-            {vehicles.map((v) => (
-              <div key={v.id} className="flex items-center gap-3 border-t border-line pt-2.5 text-sm">
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-taxi font-extrabold text-black">
-                  {v.callsign}
-                </div>
-                <div className="flex-1">
-                  <div className="font-semibold">{v.model}</div>
-                  <div className="text-muted">{v.plate}</div>
-                </div>
-              </div>
-            ))}
-            <form onSubmit={createVehicle} className="flex flex-col gap-2.5 border-t border-line pt-3">
-              <div className="flex gap-2.5">
-                <label className="label w-20">
-                  Číslo
-                  <input
-                    className="field"
-                    required
-                    placeholder="07"
-                    value={vf.callsign}
-                    onChange={(e) => setVf({ ...vf, callsign: e.target.value })}
-                  />
-                </label>
-                <label className="label flex-1">
-                  ŠPZ
-                  <input
-                    className="field"
-                    required
-                    placeholder="BA123XY"
-                    value={vf.plate}
-                    onChange={(e) => setVf({ ...vf, plate: e.target.value })}
-                  />
-                </label>
-              </div>
-              <label className="label">
-                Model
-                <input
-                  className="field"
-                  required
-                  placeholder="Škoda Superb"
-                  value={vf.model}
-                  onChange={(e) => setVf({ ...vf, model: e.target.value })}
-                />
-              </label>
-              <button type="submit" className="btn-outline">
-                Pridať auto
-              </button>
-            </form>
-          </div>
-        </aside>
+          </section>
+        )}
       </main>
+
+      {editUser && (
+        <UserForm
+          initial={editUser}
+          vehicles={vehicles}
+          isSelf={editUser.id === me?.id}
+          onClose={() => setEditUser(null)}
+          onSave={async (body) => {
+            const ok = await run(
+              () =>
+                editUser.id
+                  ? api(`/api/users/${editUser.id}`, { method: 'PATCH', body })
+                  : api('/api/users', { body }),
+              editUser.id ? 'Uložené' : 'Používateľ vytvorený',
+            );
+            if (ok) setEditUser(null);
+          }}
+        />
+      )}
+      {editVehicle && (
+        <VehicleForm
+          initial={editVehicle}
+          onClose={() => setEditVehicle(null)}
+          onSave={async (body) => {
+            const ok = await run(
+              () =>
+                editVehicle.id
+                  ? api(`/api/vehicles/${editVehicle.id}`, { method: 'PATCH', body })
+                  : api('/api/vehicles', { body }),
+              editVehicle.id ? 'Auto uložené' : 'Auto pridané',
+            );
+            if (ok) setEditVehicle(null);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function Spec({ k, v }: { k: string; v: string | number | null }) {
+  return (
+    <>
+      <dt className="text-muted">{k}</dt>
+      <dd className="m-0 text-right">{v ?? '–'}</dd>
+    </>
+  );
+}
+
+function RowActions({
+  onEdit,
+  onToggle,
+  toggleLabel,
+  onDelete,
+  canDelete,
+}: {
+  onEdit: () => void;
+  onToggle: () => void;
+  toggleLabel: string;
+  onDelete: () => void;
+  canDelete: boolean;
+}) {
+  return (
+    <td className="px-2.5 py-2.5 whitespace-nowrap text-right">
+      <button type="button" className="mr-3 text-sm text-taxi hover:text-taxi-hover" onClick={onEdit}>
+        Upraviť
+      </button>
+      <button type="button" className="mr-3 text-sm text-muted hover:text-text" onClick={onToggle}>
+        {toggleLabel}
+      </button>
+      {canDelete ? (
+        <button type="button" className="text-sm text-red-300 hover:text-red-200" onClick={onDelete}>
+          Zmazať
+        </button>
+      ) : (
+        <span className="text-xs text-muted" title="Má jazdy v histórii – dá sa len deaktivovať">
+          –
+        </span>
+      )}
+    </td>
+  );
+}
+
+// ---------------- formulár používateľa ----------------
+function UserForm({
+  initial,
+  vehicles,
+  isSelf,
+  onClose,
+  onSave,
+}: {
+  initial: Partial<User>;
+  vehicles: Vehicle[];
+  isSelf: boolean;
+  onClose: () => void;
+  onSave: (body: Record<string, unknown>) => Promise<void>;
+}) {
+  const isNew = !initial.id;
+  const [f, setF] = useState({
+    role: (initial.role ?? 'driver') as Role,
+    name: initial.name ?? '',
+    username: initial.username ?? '',
+    password: '',
+    phone: initial.phone ?? '',
+    email: initial.email ?? '',
+    vehicleId: initial.vehicleId ? String(initial.vehicleId) : '',
+    note: initial.note ?? '',
+  });
+  const [saving, setSaving] = useState(false);
+  const set = (k: keyof typeof f) => (e: { target: { value: string } }) =>
+    setF({ ...f, [k]: e.target.value });
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    const body: Record<string, unknown> = {
+      role: f.role,
+      name: f.name,
+      username: f.username,
+      phone: f.phone || null,
+      email: f.email || null,
+      note: f.note || null,
+      vehicleId: f.role === 'driver' && f.vehicleId ? Number(f.vehicleId) : null,
+    };
+    if (f.password) body.password = f.password;
+    if (isSelf) delete body.role;
+    await onSave(body);
+    setSaving(false);
+  }
+
+  const title = isNew ? (f.role === 'driver' ? 'Nový vodič' : 'Nový používateľ') : `Upraviť: ${initial.name}`;
+
+  return (
+    <Modal title={title} onClose={onClose}>
+      <form onSubmit={submit} className="flex flex-col gap-3">
+        {!isSelf && (
+          <label className="label">
+            Rola
+            <select className="field" value={f.role} onChange={set('role')}>
+              <option value="driver">Vodič</option>
+              <option value="dispatcher">Dispečer</option>
+              <option value="admin">Admin</option>
+            </select>
+          </label>
+        )}
+        <label className="label">
+          Meno a priezvisko
+          <input className="field" required value={f.name} onChange={set('name')} />
+        </label>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="label">
+            Login
+            <input
+              className="field"
+              required
+              autoCapitalize="none"
+              value={f.username}
+              onChange={set('username')}
+            />
+          </label>
+          <label className="label">
+            {isNew ? 'Heslo' : 'Nové heslo (prázdne = nemeniť)'}
+            <input
+              className="field"
+              type="password"
+              autoComplete="new-password"
+              minLength={8}
+              required={isNew}
+              value={f.password}
+              onChange={set('password')}
+            />
+          </label>
+          <label className="label">
+            Telefón
+            <input className="field" type="tel" value={f.phone} onChange={set('phone')} />
+          </label>
+          <label className="label">
+            E-mail
+            <input className="field" type="email" value={f.email} onChange={set('email')} />
+          </label>
+        </div>
+        {f.role === 'driver' && (
+          <label className="label">
+            Auto
+            <select className="field" value={f.vehicleId} onChange={set('vehicleId')}>
+              <option value="">— bez auta —</option>
+              {vehicles
+                .filter((v) => v.active || String(v.id) === f.vehicleId)
+                .map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.callsign} · {v.model} · {v.plate}
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
+        <label className="label">
+          Poznámka
+          <textarea className="field resize-y" rows={2} value={f.note} onChange={set('note')} />
+        </label>
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" className="btn-ghost" onClick={onClose}>
+            Zrušiť
+          </button>
+          <button type="submit" className="btn-primary px-6" disabled={saving}>
+            {isNew ? 'Vytvoriť' : 'Uložiť'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ---------------- formulár auta ----------------
+function VehicleForm({
+  initial,
+  onClose,
+  onSave,
+}: {
+  initial: Partial<Vehicle>;
+  onClose: () => void;
+  onSave: (body: Record<string, unknown>) => Promise<void>;
+}) {
+  const isNew = !initial.id;
+  const s = (v: string | number | null | undefined) => (v === null || v === undefined ? '' : String(v));
+  const [f, setF] = useState({
+    callsign: s(initial.callsign),
+    plate: s(initial.plate),
+    model: s(initial.model),
+    color: s(initial.color),
+    year: s(initial.year),
+    seats: s(initial.seats ?? 4),
+    bodyType: s(initial.bodyType),
+    fuel: s(initial.fuel),
+    vin: s(initial.vin),
+    stkUntil: s(initial.stkUntil),
+    ekUntil: s(initial.ekUntil),
+    insuranceUntil: s(initial.insuranceUntil),
+    note: s(initial.note),
+  });
+  const [saving, setSaving] = useState(false);
+  const set = (k: keyof typeof f) => (e: { target: { value: string } }) =>
+    setF({ ...f, [k]: e.target.value });
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    const body: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(f)) body[k] = v === '' ? null : v;
+    body.year = f.year ? Number(f.year) : null;
+    body.seats = f.seats ? Number(f.seats) : 4;
+    await onSave(body);
+    setSaving(false);
+  }
+
+  return (
+    <Modal title={isNew ? 'Nové auto' : `Upraviť auto ${initial.callsign}`} onClose={onClose}>
+      <form onSubmit={submit} className="flex flex-col gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <label className="label">
+            Číslo auta
+            <input
+              className="field"
+              required
+              placeholder="07"
+              value={f.callsign}
+              onChange={set('callsign')}
+            />
+          </label>
+          <label className="label col-span-1 sm:col-span-1">
+            ŠPZ
+            <input
+              className="field uppercase"
+              required
+              placeholder="BA123XY"
+              value={f.plate}
+              onChange={set('plate')}
+            />
+          </label>
+          <label className="label col-span-2">
+            Značka a model
+            <input
+              className="field"
+              required
+              placeholder="Škoda Superb"
+              value={f.model}
+              onChange={set('model')}
+            />
+          </label>
+          <label className="label">
+            Farba
+            <input className="field" placeholder="čierna" value={f.color} onChange={set('color')} />
+          </label>
+          <label className="label">
+            Rok výroby
+            <input
+              className="field"
+              type="number"
+              min={1980}
+              max={2100}
+              value={f.year}
+              onChange={set('year')}
+            />
+          </label>
+          <label className="label">
+            Miesta pre cestujúcich
+            <input className="field" type="number" min={1} max={20} value={f.seats} onChange={set('seats')} />
+          </label>
+          <label className="label">
+            Karoséria
+            <select className="field" value={f.bodyType} onChange={set('bodyType')}>
+              <option value="">—</option>
+              {BODIES.map((b) => (
+                <option key={b}>{b}</option>
+              ))}
+            </select>
+          </label>
+          <label className="label">
+            Palivo
+            <select className="field" value={f.fuel} onChange={set('fuel')}>
+              <option value="">—</option>
+              {FUELS.map((b) => (
+                <option key={b}>{b}</option>
+              ))}
+            </select>
+          </label>
+          <label className="label col-span-2 sm:col-span-3">
+            VIN
+            <input className="field uppercase" maxLength={17} value={f.vin} onChange={set('vin')} />
+          </label>
+        </div>
+        <fieldset className="m-0 grid grid-cols-1 gap-3 rounded-xl border border-line p-3 sm:grid-cols-3">
+          <legend className="px-1 text-xs uppercase tracking-wider text-muted">Platnosť dokladov</legend>
+          <label className="label">
+            STK do
+            <input className="field" type="date" value={f.stkUntil} onChange={set('stkUntil')} />
+          </label>
+          <label className="label">
+            EK do
+            <input className="field" type="date" value={f.ekUntil} onChange={set('ekUntil')} />
+          </label>
+          <label className="label">
+            PZP do
+            <input className="field" type="date" value={f.insuranceUntil} onChange={set('insuranceUntil')} />
+          </label>
+        </fieldset>
+        <label className="label">
+          Poznámka
+          <textarea className="field resize-y" rows={2} value={f.note} onChange={set('note')} />
+        </label>
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" className="btn-ghost" onClick={onClose}>
+            Zrušiť
+          </button>
+          <button type="submit" className="btn-primary px-6" disabled={saving}>
+            {isNew ? 'Pridať auto' : 'Uložiť'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }

@@ -48,6 +48,58 @@ export async function miscRoutes(app: FastifyInstance) {
     return { label, lat, lng };
   });
 
+  // Trasa pre navigáciu vo PWA vodiča (OSRM). Predvolene verejný demo server – na ostrú prevádzku
+  // odporúčame vlastný OSRM (OSRM_URL), demo má limit ~1 req/s a bez záruky dostupnosti.
+  const osrmUrl = (process.env.OSRM_URL ?? 'https://router.project-osrm.org').replace(/\/$/, '');
+  const parsePt = (v: string | undefined) => {
+    const [lat, lng] = (v ?? '').split(',').map(Number);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+      throw new HttpError(400, 'Neplatné súradnice');
+    }
+    return { lat, lng };
+  };
+  app.get<{ Querystring: { from?: string; to?: string } }>('/api/route', geoAccess, async (req) => {
+    const a = parsePt(req.query.from);
+    const b = parsePt(req.query.to);
+    const url = `${osrmUrl}/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=geojson&steps=true`;
+    const res = await fetch(url, { headers: { 'User-Agent': `davidtaxi (${env.publicUrl})` } });
+    if (!res.ok) throw new HttpError(502, 'Výpočet trasy zlyhal');
+    type OsrmStep = {
+      distance: number;
+      duration: number;
+      name: string;
+      ref?: string;
+      maneuver: { type: string; modifier?: string; location: [number, number]; exit?: number };
+    };
+    const data = (await res.json()) as {
+      code: string;
+      routes?: {
+        distance: number;
+        duration: number;
+        geometry: { coordinates: [number, number][] };
+        legs: { steps: OsrmStep[] }[];
+      }[];
+    };
+    const route = data.routes?.[0];
+    if (data.code !== 'Ok' || !route) throw new HttpError(404, 'Trasu sa nepodarilo nájsť');
+    return {
+      distance: route.distance,
+      duration: route.duration,
+      geometry: route.geometry.coordinates.map(([lng, lat]) => [lat, lng]),
+      steps: route.legs.flatMap((l) =>
+        l.steps.map((s) => ({
+          type: s.maneuver.type,
+          modifier: s.maneuver.modifier ?? null,
+          exit: s.maneuver.exit ?? null,
+          name: s.name || s.ref || '',
+          distance: s.distance,
+          duration: s.duration,
+          location: [s.maneuver.location[1], s.maneuver.location[0]],
+        })),
+      ),
+    };
+  });
+
   app.get<{ Querystring: { q?: string } }>('/api/geocode', geoAccess, async (req) => {
     const q = (req.query.q ?? '').trim();
     if (q.length < 3) return [];

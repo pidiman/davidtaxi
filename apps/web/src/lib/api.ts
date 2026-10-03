@@ -14,13 +14,34 @@ export type User = {
   username: string;
   name: string;
   phone: string | null;
+  email: string | null;
+  note: string | null;
   role: Role;
   active: boolean;
   vehicleId: number | null;
   driverStatus: DriverStatus;
+  lastSeenAt?: string | null;
+  rideCount?: number;
 };
 
-export type Vehicle = { id: number; callsign: string; plate: string; model: string; active: boolean };
+export type Vehicle = {
+  id: number;
+  callsign: string;
+  plate: string;
+  model: string;
+  color: string | null;
+  year: number | null;
+  seats: number;
+  bodyType: string | null;
+  fuel: string | null;
+  vin: string | null;
+  stkUntil: string | null;
+  ekUntil: string | null;
+  insuranceUntil: string | null;
+  note: string | null;
+  active: boolean;
+  rideCount?: number;
+};
 
 export type Driver = {
   id: number;
