@@ -7,6 +7,7 @@ import { registerAuth } from './auth.js';
 import { db, runMigrations } from './db/index.js';
 import { users } from './db/schema.js';
 import { env } from './env.js';
+import { backfillEstimates } from './estimate.js';
 import { attachRealtime } from './realtime.js';
 import { adminRoutes } from './routes/admin.js';
 import { authRoutes } from './routes/auth.js';
@@ -76,6 +77,7 @@ await seedAdmin();
 attachRealtime(app);
 startAssignReminders();
 await app.listen({ host: '0.0.0.0', port: env.port });
+backfillEstimates((m) => app.log.info(m)).catch(() => {});
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, async () => {

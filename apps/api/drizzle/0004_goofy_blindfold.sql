@@ -1,0 +1,1 @@
+ALTER TABLE "rides" ADD COLUMN "estimate_km" numeric(7, 1);

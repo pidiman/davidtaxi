@@ -93,6 +93,8 @@ export const rides = pgTable(
     vehicleId: integer('vehicle_id').references(() => vehicles.id, { onDelete: 'set null' }),
     createdById: integer('created_by_id').references(() => users.id, { onDelete: 'set null' }),
     distanceKm: numeric('distance_km', { precision: 8, scale: 3, mode: 'number' }).notNull().default(0),
+    // približná cestná vzdialenosť A→B podľa mapy (OSRM), dopĺňa sa po vytvorení jazdy
+    estimateKm: numeric('estimate_km', { precision: 7, scale: 1, mode: 'number' }),
     price: numeric('price', { precision: 8, scale: 2, mode: 'number' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     assignedAt: timestamp('assigned_at', { withTimezone: true }),

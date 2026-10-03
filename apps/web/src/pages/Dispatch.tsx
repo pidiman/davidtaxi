@@ -1,16 +1,18 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AddressInput } from '../components/AddressInput';
 import { DriverDetailCard } from '../components/DriverDetailCard';
-import { FleetMap, type LabelMode, type PickTarget } from '../components/FleetMap';
+import { FleetMap, type LabelMode, type MapFocus, type PickTarget, STUPAVA } from '../components/FleetMap';
 import { Header } from '../components/Header';
 import {
   api,
   DRIVER_LABEL,
   type Driver,
   type DriverStatus,
+  fmtEstimate,
   fmtEur,
   fmtKm,
   fmtTime,
+  type GeoResult,
   haversineKm,
   initials,
   type Ride,
@@ -62,6 +64,34 @@ export function Dispatch() {
   const [detailId, setDetailId] = useState<number | null>(null);
   const [detailRefresh, setDetailRefresh] = useState(0);
   const mapRef = useRef<HTMLDivElement>(null);
+  const [focus, setFocus] = useState<MapFocus | null>(null);
+  const [mapQuery, setMapQuery] = useState('');
+  const [mapSearching, setMapSearching] = useState(false);
+  const [mapSearchErr, setMapSearchErr] = useState('');
+
+  async function searchOnMap(e: FormEvent) {
+    e.preventDefault();
+    const q = mapQuery.trim();
+    if (q.length < 3) return;
+    setMapSearching(true);
+    setMapSearchErr('');
+    try {
+      const [hit] = await api<GeoResult[]>(`/api/geocode?q=${encodeURIComponent(q)}`);
+      if (!hit) setMapSearchErr('Adresu sa nepodarilo nájsť');
+      else
+        setFocus((f) => ({
+          lat: hit.lat,
+          lng: hit.lng,
+          zoom: 16,
+          label: hit.label.split(',').slice(0, 2).join(','),
+          seq: (f?.seq ?? 0) + 1,
+        }));
+    } catch (err) {
+      setMapSearchErr((err as Error).message);
+    } finally {
+      setMapSearching(false);
+    }
+  }
 
   function changeLabelMode(m: LabelMode) {
     setLabelMode(m);
@@ -361,6 +391,9 @@ export function Dispatch() {
                 <div className="my-1 font-bold">{r.customerName}</div>
                 <div className="text-sm text-soft">
                   {r.pickupAddress} → {r.dropoffAddress}
+                  {r.estimateKm !== null && (
+                    <span className="text-muted"> · ~{fmtEstimate(r.estimateKm)}</span>
+                  )}
                 </div>
               </button>
             ))}
@@ -393,13 +426,53 @@ export function Dispatch() {
                   ))}
                 </fieldset>
               </div>
-              <div className="flex flex-wrap gap-3.5 text-[13px] text-muted">
-                <Legend color="#FFC400" label="voľný" />
-                <Legend color="#F2F2F2" label="na jazde" />
-                <Legend color="#5A5A5A" label="pauza" />
-                <span>priehľadné = poloha staršia ako 2 min · klik na auto = detail</span>
-              </div>
+              <form onSubmit={searchOnMap} className="flex min-w-0 flex-[1_1_320px] items-center gap-2">
+                <div className="relative min-w-0 flex-1">
+                  <input
+                    className="field py-2 pr-9"
+                    type="search"
+                    aria-label="Hľadať adresu na mape"
+                    placeholder="Hľadať adresu na mape…"
+                    value={mapQuery}
+                    onChange={(e) => {
+                      setMapQuery(e.target.value);
+                      setMapSearchErr('');
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    aria-label="Hľadať"
+                    disabled={mapSearching}
+                    className="absolute top-1/2 right-1 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted hover:text-taxi"
+                  >
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="11" cy="11" r="7" />
+                      <path d="M20 20l-3.5-3.5" />
+                    </svg>
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  className="btn-outline shrink-0 px-3 py-2 text-sm"
+                  onClick={() => {
+                    setMapSearchErr('');
+                    setFocus((f) => ({ lat: STUPAVA[0], lng: STUPAVA[1], zoom: 14, seq: (f?.seq ?? 0) + 1 }));
+                  }}
+                >
+                  Stupava
+                </button>
+              </form>
             </div>
+            {mapSearchErr && <div className="px-4 pb-2 text-sm text-red-300">{mapSearchErr}</div>}
             <FleetMap
               drivers={drivers}
               selected={selected}
@@ -420,13 +493,20 @@ export function Dispatch() {
                 setDetailId(id);
                 setDetailRefresh((n) => n + 1);
               }}
+              focus={focus}
             />
+            <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 py-3 text-[13px] text-muted">
+              <Legend color="#FFC400" label="voľný" />
+              <Legend color="#F2F2F2" label="na jazde" />
+              <Legend color="#5A5A5A" label="pauza" />
+              <span>priehľadné = poloha staršia ako 2 min · klik na auto = detail</span>
+            </div>
           </div>
 
           <div className="card">
             <h2 className="h2 mb-3">Aktívne jazdy</h2>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[680px] border-collapse text-sm">
+              <table className="w-full min-w-[760px] border-collapse text-sm">
                 <thead>
                   <tr className="text-left text-xs uppercase tracking-wider text-muted">
                     <th className="px-2.5 py-2 font-semibold">Auto</th>
@@ -434,14 +514,22 @@ export function Dispatch() {
                     <th className="px-2.5 py-2 font-semibold">Zákazník</th>
                     <th className="px-2.5 py-2 font-semibold">Trasa</th>
                     <th className="px-2.5 py-2 font-semibold">Stav</th>
-                    <th className="px-2.5 py-2 text-right font-semibold">Km</th>
+                    <th
+                      className="px-2.5 py-2 text-right font-semibold"
+                      title="Približná cestná vzdialenosť A→B podľa mapy"
+                    >
+                      Vzdialenosť
+                    </th>
+                    <th className="px-2.5 py-2 text-right font-semibold" title="Najazdené km podľa GPS">
+                      Najazdené
+                    </th>
                     <th className="px-2.5 py-2" />
                   </tr>
                 </thead>
                 <tbody>
                   {active.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="px-2.5 py-4 text-muted">
+                      <td colSpan={8} className="px-2.5 py-4 text-muted">
                         Momentálne nikto nejazdí.
                       </td>
                     </tr>
@@ -468,6 +556,9 @@ export function Dispatch() {
                           {STATUS_LABEL[r.status]}
                         </span>
                         {r.source === 'street' && <StreetBadge />}
+                      </td>
+                      <td className="px-2.5 py-2.5 text-right whitespace-nowrap tabular-nums text-soft">
+                        {fmtEstimate(r.estimateKm)}
                       </td>
                       <td className="px-2.5 py-2.5 text-right font-bold tabular-nums">
                         {fmtKm(Number(r.distanceKm))}

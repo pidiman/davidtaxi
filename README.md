@@ -4,6 +4,7 @@ Dispečing pre taxislužbu: **admin / dispečer dashboard** + **PWA pre vodičov
 
 - Admin spravuje vodičov, dispečerov a autá (vytvorenie, úprava, deaktivácia, zmazanie). Pri autách eviduje farbu, rok, počet miest, karosériu, palivo, VIN a platnosť STK, EK a PZP s upozornením 30 dní pred koncom.
   - Vodiča alebo auto s jazdami v histórii nemožno zmazať, len deaktivovať, aby história ostala úplná.
+- **Vzdialenosť A→B:** pri každej jazde server vypočíta približnú cestnú vzdialenosť podľa mapy (OSRM; ak adresa nemá súradnice, najprv ju geokóduje). Zobrazuje sa v Čakajúcich, Aktívnych jazdách aj v Histórii. Stĺpec *Najazdené* sú skutočné km z GPS.
 - **Smeny a autá:** autá sú firemné. Pred začiatkom smeny vodič vyberie auto (s fotkou, auto podľa rozpisu je zvýraznené) a zapíše počiatočný stav tachometra. Bez toho nedostane jazdy.
   - Pri *Ukončiť smenu* zapíše konečný stav km.
   - Ak smenu zabudne ukončiť, ďalší vodič auto prevezme. Jeho počiatočný stav km sa zapíše ako konečný stav predchádzajúceho vodiča (v knihe smien so štítkom *doplnil ďalší vodič*).
@@ -15,6 +16,7 @@ Dispečing pre taxislužbu: **admin / dispečer dashboard** + **PWA pre vodičov
 - **Dashboard:**
   - prepínač *Číslo auta / Iniciály vodiča* (popis áut na mape aj v zozname vodičov, appka si ho pamätá),
   - body A a B objednávky sa dajú zadať aj kliknutím na mapu: ikona špendlíka na konci poľa, potom klik do mapy, adresa sa doplní sama, Esc výber zruší,
+  - nad mapou je vyhľadávanie adresy (Enter presunie mapu na nájdené miesto) a tlačidlo *Stupava*, legenda je pod mapou,
   - klik na auto v mape zobrazí pod *Priradiť vodiča* detail auta (fotka, údaje) a vodiča (telefón, smena, štart km, jazdy a tržba v smene, aktuálna jazda).
 - Vodič dostane push notifikáciu, vidí trasu A → B a meno a telefón zákazníka. Jazdu prijme alebo odmietne.
 - **Nová jazda sa nedá prehliadnuť:**

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Header } from '../components/Header';
-import { api, fmtEur, fmtKm, type Ride, STATUS_LABEL } from '../lib/api';
+import { api, fmtEstimate, fmtEur, fmtKm, type Ride, STATUS_LABEL } from '../lib/api';
 import { StreetBadge } from './Dispatch';
 
 export function History() {
@@ -29,7 +29,7 @@ export function History() {
         </div>
         {err && <div className="text-red-300">{err}</div>}
         <div className="card overflow-x-auto">
-          <table className="w-full min-w-[900px] border-collapse text-sm">
+          <table className="w-full min-w-[980px] border-collapse text-sm">
             <thead>
               <tr className="text-left text-xs uppercase tracking-wider text-muted">
                 <th className="px-2.5 py-2">Dátum</th>
@@ -37,7 +37,12 @@ export function History() {
                 <th className="px-2.5 py-2">Trasa</th>
                 <th className="px-2.5 py-2">Vodič / auto</th>
                 <th className="px-2.5 py-2">Stav</th>
-                <th className="px-2.5 py-2 text-right">Km</th>
+                <th className="px-2.5 py-2 text-right" title="Približná cestná vzdialenosť A→B podľa mapy">
+                  Vzdialenosť
+                </th>
+                <th className="px-2.5 py-2 text-right" title="Najazdené km podľa GPS">
+                  Najazdené
+                </th>
                 <th className="px-2.5 py-2 text-right">Cena</th>
               </tr>
             </thead>
@@ -61,6 +66,9 @@ export function History() {
                   <td className="px-2.5 py-2.5">
                     {STATUS_LABEL[r.status]}
                     {r.source === 'street' && <StreetBadge />}
+                  </td>
+                  <td className="px-2.5 py-2.5 text-right whitespace-nowrap tabular-nums text-soft">
+                    {fmtEstimate(r.estimateKm)}
                   </td>
                   <td className="px-2.5 py-2.5 text-right tabular-nums">{fmtKm(Number(r.distanceKm))}</td>
                   <td className="px-2.5 py-2.5 text-right font-bold tabular-nums">

@@ -144,6 +144,7 @@ export type Ride = {
   vehicleCallsign: string | null;
   vehiclePlate: string | null;
   distanceKm: number;
+  estimateKm: number | null;
   price: number | null;
   createdAt: string;
   assignedAt: string | null;
@@ -269,3 +270,9 @@ export type DriverDetail = {
   } | null;
   stats: { rides: number; km: number; revenue: number };
 };
+
+/** Približná vzdialenosť A→B (cestná podľa mapy) – "12,4 km" alebo "–", kým sa počíta. */
+export const fmtEstimate = (km: number | null) =>
+  km === null || km === undefined
+    ? '–'
+    : `${Number(km).toLocaleString('sk-SK', { maximumFractionDigits: 1 })} km`;

@@ -4,10 +4,11 @@ import { MapContainer, Marker, Polyline, TileLayer, Tooltip, useMap, useMapEvent
 import { DRIVER_LABEL, type Driver, initials, type Ride } from '../lib/api';
 
 const TILE_URL = import.meta.env.VITE_TILE_URL ?? 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-const CENTER: [number, number] = [48.2745, 17.0318]; // Stupava
 const STALE_MS = 2 * 60 * 1000;
 
 export type LabelMode = 'car' | 'initials';
+export type MapFocus = { lat: number; lng: number; zoom: number; label?: string; seq: number };
+export const STUPAVA: [number, number] = [48.2745, 17.0318];
 export type PickTarget = 'A' | 'B';
 type Pt = [number, number];
 
@@ -47,6 +48,22 @@ function FlyTo({ pos }: { pos: Pt | null }) {
   return null;
 }
 
+/** Presun mapy z vyhľadávania / tlačidla Stupava (seq zabezpečí presun aj na to isté miesto). */
+function FocusOn({ focus }: { focus: MapFocus | null }) {
+  const map = useMap();
+  useEffect(() => {
+    if (focus) map.flyTo([focus.lat, focus.lng], focus.zoom, { duration: 0.8 });
+  }, [focus, map]);
+  return null;
+}
+
+const searchIcon = L.divIcon({
+  className: '',
+  iconSize: [18, 18],
+  iconAnchor: [9, 9],
+  html: '<div class="search-dot"></div>',
+});
+
 function PickHandler({ active, onPick }: { active: boolean; onPick: (lat: number, lng: number) => void }) {
   const map = useMapEvents({
     click(e) {
@@ -71,6 +88,7 @@ export function FleetMap({
   draftB,
   selectedDriverId,
   onSelectDriver,
+  focus,
 }: {
   drivers: Driver[];
   selected: Ride | null;
@@ -82,6 +100,7 @@ export function FleetMap({
   draftB: Pt | null;
   selectedDriverId: number | null;
   onSelectDriver: (id: number) => void;
+  focus: MapFocus | null;
 }) {
   const pickup: Pt | null =
     selected?.pickupLat && selected.pickupLng ? [selected.pickupLat, selected.pickupLng] : null;
@@ -89,7 +108,7 @@ export function FleetMap({
 
   return (
     <div className="relative">
-      <MapContainer center={CENTER} zoom={12} className="map-dark h-[420px] w-full" scrollWheelZoom>
+      <MapContainer center={STUPAVA} zoom={12} className="map-dark h-[420px] w-full" scrollWheelZoom>
         <TileLayer url={TILE_URL} attribution="&copy; OpenStreetMap" maxZoom={19} />
         {drivers
           .filter((d) => d.lat !== null && d.lng !== null && d.status !== 'offline')
@@ -123,7 +142,15 @@ export function FleetMap({
             pathOptions={{ color: '#F2F2F2', weight: 2, dashArray: '4 6' }}
           />
         )}
+        {focus?.label && (
+          <Marker position={[focus.lat, focus.lng]} icon={searchIcon} interactive={false}>
+            <Tooltip permanent direction="top" offset={[0, -10]}>
+              {focus.label}
+            </Tooltip>
+          </Marker>
+        )}
         <FlyTo pos={pickup} />
+        <FocusOn focus={focus} />
         <PickHandler active={pickTarget !== null} onPick={onPick} />
       </MapContainer>
       {pickTarget && (

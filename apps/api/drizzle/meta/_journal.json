@@ -29,6 +29,13 @@
       "when": 1790993546572,
       "tag": "0003_sad_surge",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791029267709,
+      "tag": "0004_goofy_blindfold",
+      "breakpoints": true
     }
   ]
 }

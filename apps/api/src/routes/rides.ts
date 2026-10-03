@@ -4,6 +4,7 @@ import { DISPATCH, requireRole } from '../auth.js';
 import { db } from '../db/index.js';
 import { type Ride, ridePoints, rides, users, vehicles } from '../db/schema.js';
 import { env } from '../env.js';
+import { estimateRide } from '../estimate.js';
 import { acceptSegment, haversineKm } from '../geo.js';
 import { sendPush } from '../push.js';
 import { emitDispatch, emitDriver } from '../realtime.js';
@@ -115,6 +116,7 @@ export async function rideRoutes(app: FastifyInstance) {
         createdById: req.user.id,
       })
       .returning();
+    scheduleEstimate(r.id);
     return broadcastRide(r.id);
   });
 
@@ -221,6 +223,7 @@ export async function rideRoutes(app: FastifyInstance) {
       })
       .returning();
     await setDriverStatus(req.user.id, 'busy');
+    scheduleEstimate(r.id);
     const view = await broadcastRide(r.id);
     emitDispatch('ride:street', {
       id: r.id,
@@ -383,4 +386,13 @@ export function startAssignReminders() {
     }
   }, 30_000);
   timer.unref();
+}
+
+/** Vzdialenosť A→B sa počíta na pozadí (geokódovanie + OSRM), potom sa jazda rozpošle znova. */
+function scheduleEstimate(id: number) {
+  estimateRide(id)
+    .then(async (changed) => {
+      if (changed) await broadcastRide(id);
+    })
+    .catch(() => {});
 }
