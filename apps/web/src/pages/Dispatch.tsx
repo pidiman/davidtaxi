@@ -568,7 +568,7 @@ export function Dispatch() {
                 <span className="font-bold text-taxi">Trasa</span>
                 <span className="min-w-0 flex-1 truncate">
                   {trackedRide.customerName} · auto {trackedRide.vehicleCallsign ?? '?'} ·{' '}
-                  {trackedRide.pickupAddress} → {trackedRide.dropoffAddress}
+                  {trackedRide.pickupAddress} → {trackedRide.dropoffAddress || 'bez cieľa'}
                   {trackedRide.estimateKm !== null && ` · ~${fmtEstimate(trackedRide.estimateKm)}`}
                   {!tA || !tB ? ' · body A/B ešte nemajú súradnice' : ''}
                 </span>
@@ -707,7 +707,7 @@ export function Dispatch() {
                         )}
                       </td>
                       <td className="px-2.5 py-2.5 text-soft">
-                        {r.pickupAddress} → {r.dropoffAddress}
+                        {r.pickupAddress} → {r.dropoffAddress || 'bez cieľa'}
                       </td>
                       <td className="px-2.5 py-2.5">
                         <span
@@ -775,7 +775,7 @@ export function Dispatch() {
                   </div>
                   <div className="my-1 font-bold">{r.customerName}</div>
                   <div className="text-sm text-soft">
-                    {r.pickupAddress} → {r.dropoffAddress}
+                    {r.pickupAddress} → {r.dropoffAddress || 'bez cieľa'}
                     {r.estimateKm !== null && (
                       <span className="text-muted"> · ~{fmtEstimate(r.estimateKm)}</span>
                     )}
@@ -807,7 +807,7 @@ export function Dispatch() {
           <div className="flex flex-col gap-2.5">
             <div className="rounded-[10px] bg-ink p-3 text-sm">
               <div className="text-soft">
-                {assignRide.pickupAddress} → {assignRide.dropoffAddress}
+                {assignRide.pickupAddress} → {assignRide.dropoffAddress || 'bez cieľa'}
                 {assignRide.estimateKm !== null && (
                   <span className="text-muted"> · ~{fmtEstimate(assignRide.estimateKm)}</span>
                 )}

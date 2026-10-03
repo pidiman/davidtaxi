@@ -149,7 +149,7 @@ export function MyRides({ onClose }: { onClose: () => void }) {
               </div>
               <div className="mt-1 font-bold">{r.customerName}</div>
               <div className="text-sm text-soft">
-                {r.pickupAddress} → {r.dropoffAddress}
+                {r.pickupAddress} → {r.dropoffAddress || 'bez cieľa'}
               </div>
               {r.status === 'completed' && (
                 <div className="mt-1.5 flex justify-between text-sm">

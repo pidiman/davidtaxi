@@ -4,6 +4,7 @@ Dispečing pre taxislužbu: **admin / dispečer dashboard** + **PWA pre vodičov
 
 - **Incidenty:** vodič v appke (menu ☰ → *Incident*) popíše, čo sa stalo, priloží až 6 fotiek z fotoaparátu alebo galérie a voliteľne vyberie jazdu z aktuálnej (alebo poslednej) smeny. Dispečing dostane upozornenie na dashboarde; zoznam s fotkami a tlačidlom *Označiť ako vyriešené* je v menu **Incidenty** (číslo = otvorené).
 - Stav vodiča (Online / Pauza) a **Ukončiť smenu** sú v popupe po kliknutí na tlačidlo stavu v hlavičke appky. Karta auta ukazuje fotku, ŠPZ, štart km a km odjazdené na jazdách v smene.
+- Jazda z ulice: cieľ B sa dá vybrať aj ťuknutím na mapu (ikona špendlíka). Cieľ je nepovinný – bez neho sa appka opýta, či ide o jazdu bez cieľa; B sa potom doplní podľa GPS pri ukončení jazdy.
 - **Moje jazdy** (menu ☰): jazdy aktuálnej smeny so súhrnom (jazdy, km, tržba), výber starších smien.
 - **História jázd** má filtre: obdobie (dnes, včera, 7/30 dní, mesiac, vlastné), vodič, auto, stav, zdroj a hľadanie (zákazník, telefón, adresa, #ID) + súhrn.
 - **Majiteľ** má rovnaké práva ako admin; na jeho e-mail budú neskôr chodiť prevádzkové info (prehľady, upozornenia). Rolu nastavíš v *Admin → Dispečeri a admini*.

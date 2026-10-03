@@ -178,7 +178,7 @@ export function DriverDetailCard({
                 )}
               </div>
               <div className="text-[#f2e3b0]">
-                {d.ride.pickupAddress} → {d.ride.dropoffAddress}
+                {d.ride.pickupAddress} → {d.ride.dropoffAddress || 'bez cieľa'}
               </div>
             </div>
           ) : (

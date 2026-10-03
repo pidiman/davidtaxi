@@ -214,7 +214,7 @@ export function IncidentReport({ onClose, onSent }: { onClose: () => void; onSen
                   </span>
                   <span className="block font-semibold">{r.customerName}</span>
                   <span className="block truncate text-sm text-soft">
-                    {r.pickupAddress} → {r.dropoffAddress}
+                    {r.pickupAddress} → {r.dropoffAddress || 'bez cieľa'}
                   </span>
                 </RideOption>
               ))}

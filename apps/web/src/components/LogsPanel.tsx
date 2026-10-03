@@ -44,6 +44,7 @@ const EVT_LABEL: Record<string, string> = {
   'ride.street': 'Z ulice',
   'ride.returned': 'Vrátená',
   'ride.reminder': 'Pripomienka',
+  'ride.destination_set': 'Doplnený cieľ',
   'incident.reported': 'Nahlásený incident',
   'incident.resolved': 'Incident vyriešený',
   'incident.reopened': 'Incident znovu otvorený',

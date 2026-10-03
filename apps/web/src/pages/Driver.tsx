@@ -4,6 +4,7 @@ import { TaxiIcon, Wordmark } from '../components/Brand';
 import { DriverNav, type NavPos, type NavTarget } from '../components/DriverNav';
 import { IncidentReport } from '../components/IncidentReport';
 import { IncomingRideAlert } from '../components/IncomingRideAlert';
+import { MapPicker } from '../components/MapPicker';
 import { Modal } from '../components/Modal';
 import { MyRides } from '../components/MyRides';
 import { EndShiftDialog, ShiftBar, ShiftStart } from '../components/ShiftControls';
@@ -174,8 +175,11 @@ export function Driver() {
     setBusy(true);
     setErr('');
     try {
+      // pri ukončení pošli aj polohu – jazde bez cieľa sa podľa nej doplní adresa B
+      const p = lastPos.current;
       const res = await api<Ride | { ok: true }>(`/api/driver/rides/${ride.id}/${action}`, {
         method: 'POST',
+        body: action === 'finish' && p ? { lat: p.lat, lng: p.lng } : undefined,
       });
       if (action === 'reject') setRides((l) => l.filter((x) => x.id !== ride.id));
       else if ('id' in res) {
@@ -392,7 +396,7 @@ export function Driver() {
               className="flex items-center justify-between gap-2 border-t border-line pt-2 text-sm"
             >
               <span className="min-w-0 truncate">
-                {r.pickupAddress} → {r.dropoffAddress}
+                {r.pickupAddress} → {r.dropoffAddress || 'bez cieľa'}
               </span>
               {r.status === 'assigned' ? (
                 <button
@@ -478,13 +482,7 @@ function StatusButton({
 }) {
   const [open, setOpen] = useState(false);
   const busy = status === 'busy';
-  const label = busy
-    ? 'Na jazde'
-    : status === 'break'
-      ? 'Pauza'
-      : status === 'available'
-        ? 'Online'
-        : 'Offline';
+  const label = busy ? 'Jazda' : status === 'break' ? 'Pauza' : status === 'available' ? 'Online' : 'Offline';
   return (
     <>
       <button
@@ -517,7 +515,7 @@ function StatusButton({
               <div className="flex items-center gap-3 rounded-2xl border-2 border-text p-4">
                 <span className="h-4 w-4 shrink-0 rounded-full bg-text" aria-hidden="true" />
                 <span className="flex-1">
-                  <span className="block text-lg font-bold">Na jazde</span>
+                  <span className="block text-lg font-bold">Jazda</span>
                   <span className="block text-sm text-muted">Po dokončení jazdy budeš znova Online</span>
                 </span>
                 <span className="text-sm font-semibold">aktuálne</span>
@@ -776,7 +774,11 @@ function RideCard({
             dim={toB}
             onNav={!toB && s !== 'assigned' ? navA : undefined}
           />
-          <AddressRow address={ride.dropoffAddress} dim={false} onNav={toB ? navB : undefined} />
+          <AddressRow
+            address={ride.dropoffAddress || 'bez cieľa'}
+            dim={false}
+            onNav={toB && ride.dropoffAddress ? navB : undefined}
+          />
         </div>
       </div>
 
@@ -814,7 +816,7 @@ function RideCard({
         <div className="rounded-xl bg-taxi-dim px-3.5 py-3 text-sm text-[#f2e3b0]">{ride.note}</div>
       )}
 
-      {(s === 'accepted' || s === 'in_progress') && (
+      {(s === 'accepted' || (s === 'in_progress' && ride.dropoffAddress)) && (
         <button
           type="button"
           onClick={s === 'accepted' ? navA : navB}
@@ -882,7 +884,13 @@ function RideCard({
           <button
             type="button"
             disabled={busy}
-            onClick={() => confirm('Ukončiť jazdu?') && onAct(ride, 'finish')}
+            onClick={() =>
+              confirm(
+                ride.dropoffAddress
+                  ? 'Ukončiť jazdu?'
+                  : 'Ukončiť jazdu? Cieľ sa zapíše podľa tvojej aktuálnej polohy.',
+              ) && onAct(ride, 'finish')
+            }
             className="btn-primary h-[62px] flex-1 rounded-2xl text-lg font-extrabold uppercase"
           >
             Ukončiť jazdu
@@ -953,6 +961,9 @@ function StreetRideForm({
   const [locating, setLocating] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [pickB, setPickB] = useState(false);
+  const [askNoDest, setAskNoDest] = useState(false);
+  const destRef = useRef<HTMLDivElement>(null);
 
   const fillFromGps = useCallback(async (known: Pos | null) => {
     setLocating(true);
@@ -974,8 +985,14 @@ function StreetRideForm({
     fillFromGps(lastPos);
   }, []);
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
+  async function submit(e?: FormEvent, noDestination = false) {
+    e?.preventDefault();
+    // bez cieľa: opýtaj sa, či je to zámer (cieľ sa zapíše pri ukončení jazdy) alebo omyl
+    if (!dropoff.address.trim() && !noDestination) {
+      setAskNoDest(true);
+      return;
+    }
+    setAskNoDest(false);
     setBusy(true);
     setError('');
     try {
@@ -984,7 +1001,7 @@ function StreetRideForm({
           pickupAddress: pickup.address,
           pickupLat: pickup.lat ?? undefined,
           pickupLng: pickup.lng ?? undefined,
-          dropoffAddress: dropoff.address,
+          dropoffAddress: dropoff.address.trim() || undefined,
           dropoffLat: dropoff.lat ?? undefined,
           dropoffLng: dropoff.lng ?? undefined,
           customerName: name || undefined,
@@ -1023,7 +1040,17 @@ function StreetRideForm({
         </button>
       </div>
 
-      <AddressInput label="B · Cieľ" value={dropoff.address} onChange={setDropoff} />
+      <div ref={destRef}>
+        <AddressInput
+          label="B · Cieľ (nepovinné)"
+          value={dropoff.address}
+          onChange={setDropoff}
+          onPickMap={() => setPickB(true)}
+          picking={pickB}
+          pinLabel="Cieľ"
+          required={false}
+        />
+      </div>
 
       <div className="flex gap-2.5">
         <label className="label flex-[2]">
@@ -1055,7 +1082,7 @@ function StreetRideForm({
         </button>
         <button
           type="submit"
-          disabled={busy || locating || !pickup.address || !dropoff.address}
+          disabled={busy || locating || !pickup.address}
           className="btn-primary h-[60px] flex-[2] rounded-2xl text-lg font-extrabold uppercase"
         >
           Štart jazdy
@@ -1064,6 +1091,70 @@ function StreetRideForm({
       <p className="m-0 text-center text-xs text-muted">
         Dispečing uvidí jazdu a auto bude označené ako obsadené.
       </p>
+
+      {pickB && (
+        <MapPicker
+          title="Cieľ jazdy"
+          letter="B"
+          initial={
+            dropoff.lat !== null && dropoff.lng !== null ? { lat: dropoff.lat, lng: dropoff.lng } : null
+          }
+          me={
+            lastPos
+              ? { lat: lastPos.lat, lng: lastPos.lng }
+              : pickup.lat !== null && pickup.lng !== null
+                ? { lat: pickup.lat, lng: pickup.lng }
+                : null
+          }
+          onPick={(p) => {
+            setDropoff(p);
+            setPickB(false);
+          }}
+          onClose={() => setPickB(false)}
+        />
+      )}
+
+      {askNoDest && (
+        <Modal title="Jazda bez cieľa?" onClose={() => setAskNoDest(false)}>
+          <div className="flex flex-col gap-3">
+            <p className="m-0 text-soft">
+              Nezadal si cieľ (B). Ak ho zákazník ešte nevie, môžeš jazdu spustiť bez neho – cieľ sa zapíše
+              podľa GPS, keď jazdu ukončíš.
+            </p>
+            <button
+              type="button"
+              className="btn-primary h-14 rounded-2xl text-lg font-extrabold uppercase"
+              disabled={busy}
+              onClick={() => submit(undefined, true)}
+            >
+              Áno, jazda bez cieľa
+            </button>
+            <button
+              type="button"
+              className="btn-outline h-14 rounded-2xl text-base font-bold"
+              onClick={() => {
+                setAskNoDest(false);
+                setTimeout(() => {
+                  destRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                  destRef.current?.querySelector('input')?.focus();
+                }, 50);
+              }}
+            >
+              Nie, doplním cieľ
+            </button>
+            <button
+              type="button"
+              className="text-sm text-taxi"
+              onClick={() => {
+                setAskNoDest(false);
+                setPickB(true);
+              }}
+            >
+              Vybrať cieľ na mape
+            </button>
+          </div>
+        </Modal>
+      )}
     </form>
   );
 }

@@ -12,6 +12,7 @@ export function AddressInput({
   onPickMap,
   picking = false,
   pinLabel,
+  required = true,
 }: {
   label: string;
   value: string;
@@ -19,6 +20,7 @@ export function AddressInput({
   onPickMap?: () => void;
   picking?: boolean;
   pinLabel?: string;
+  required?: boolean;
 }) {
   const [items, setItems] = useState<GeoResult[]>([]);
   const [open, setOpen] = useState(false);
@@ -48,7 +50,7 @@ export function AddressInput({
           <input
             className={`field ${onPickMap ? 'pr-12' : ''} ${picking ? 'border-taxi' : ''}`}
             value={value}
-            required
+            required={required}
             placeholder={picking ? 'Klikni na mapu…' : undefined}
             onChange={(e) => {
               typed.current = true;

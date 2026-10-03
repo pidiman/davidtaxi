@@ -31,7 +31,7 @@ function activity(d: Driver, ride: Ride | undefined): { text: string; detail?: s
       case 'in_progress':
         return {
           text: ride.source === 'street' ? 'Vezie zákazníka (z ulice)' : 'Vezie zákazníka',
-          detail: `${who} · B: ${ride.dropoffAddress}`,
+          detail: `${who} · B: ${ride.dropoffAddress || 'bez cieľa'}`,
           tone: 'text-text',
         };
     }

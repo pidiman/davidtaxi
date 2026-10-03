@@ -4,7 +4,7 @@ import { DISPATCH, requireRole } from '../auth.js';
 import { db } from '../db/index.js';
 import { type Ride, ridePoints, rides, users, vehicles } from '../db/schema.js';
 import { env } from '../env.js';
-import { estimateRide } from '../estimate.js';
+import { estimateRide, reverseLabel } from '../estimate.js';
 import { acceptSegment, haversineKm } from '../geo.js';
 import { audit, byFields, warn, who } from '../log.js';
 import { sendPush } from '../push.js';
@@ -273,7 +273,8 @@ export async function rideRoutes(app: FastifyInstance) {
         pickupAddress: str(b, 'pickupAddress')!,
         pickupLat: num(b, 'pickupLat', false) ?? null,
         pickupLng: num(b, 'pickupLng', false) ?? null,
-        dropoffAddress: str(b, 'dropoffAddress')!,
+        // cieľ je pri jazde z ulice nepovinný – doplní sa podľa GPS pri ukončení
+        dropoffAddress: str(b, 'dropoffAddress', false) ?? '',
         dropoffLat: num(b, 'dropoffLat', false) ?? null,
         dropoffLng: num(b, 'dropoffLng', false) ?? null,
         passengers: num(b, 'passengers', false) ?? 1,
@@ -366,10 +367,37 @@ export async function rideRoutes(app: FastifyInstance) {
     const r = await ownRide(Number(req.params.id), req.user.id, ['in_progress']);
     const km = Number(r.distanceKm);
     const price = Math.max(env.priceMin, Math.round(km * env.pricePerKm * 100) / 100);
+    // jazda bez cieľa → B = miesto ukončenia (poloha z appky, inak posledná známa)
+    let dest: Partial<Pick<Ride, 'dropoffAddress' | 'dropoffLat' | 'dropoffLng'>> = {};
+    if (!r.dropoffAddress) {
+      const b = (req.body ?? {}) as Record<string, unknown>;
+      let lat = num(b, 'lat', false) ?? null;
+      let lng = num(b, 'lng', false) ?? null;
+      if (lat === null || lng === null) {
+        const [me] = await db
+          .select({ lat: users.lastLat, lng: users.lastLng })
+          .from(users)
+          .where(eq(users.id, req.user.id));
+        lat = me?.lat ?? null;
+        lng = me?.lng ?? null;
+      }
+      if (lat !== null && lng !== null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+        dest = { dropoffAddress: await reverseLabel(lat, lng), dropoffLat: lat, dropoffLng: lng };
+      } else {
+        dest = { dropoffAddress: 'neznámy cieľ' };
+      }
+    }
     await db
       .update(rides)
-      .set({ status: 'completed', finishedAt: new Date(), price })
+      .set({ status: 'completed', finishedAt: new Date(), price, ...dest })
       .where(eq(rides.id, r.id));
+    if ('dropoffAddress' in dest) {
+      audit('ride.destination_set', `Jazda #${r.id}: cieľ doplnený pri ukončení podľa GPS`, {
+        rideId: r.id,
+        driverId: req.user.id,
+      });
+      scheduleEstimate(r.id);
+    }
     const mins = r.startedAt ? Math.round((Date.now() - r.startedAt.getTime()) / 60000) : undefined;
     audit(
       'ride.completed',

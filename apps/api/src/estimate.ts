@@ -27,6 +27,34 @@ async function geocodeFirst(q: string): Promise<Pt | null> {
   return d ? { lat: Number(d.lat), lng: Number(d.lon) } : null;
 }
 
+/** Súradnice → krátka adresa „Ulica číslo, Obec“ (Nominatim reverse). Pri chybe vráti súradnice. */
+export async function reverseLabel(lat: number, lng: number): Promise<string> {
+  const fallback = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+  try {
+    const url = new URL(geocoderUrl.replace(/\/search\/?$/, '/reverse'));
+    url.searchParams.set('lat', String(lat));
+    url.searchParams.set('lon', String(lng));
+    url.searchParams.set('format', 'jsonv2');
+    url.searchParams.set('zoom', '18');
+    url.searchParams.set('accept-language', 'sk');
+    const res = await fetch(url, { headers: UA, signal: AbortSignal.timeout(8000) });
+    if (!res.ok) {
+      warn('geocoder.failed', `Reverse geokóder vrátil ${res.status}`, { status: res.status });
+      return fallback;
+    }
+    const d = (await res.json()) as { display_name?: string; address?: Record<string, string> };
+    const a = d.address ?? {};
+    const street = [a.road ?? a.pedestrian ?? a.square ?? a.amenity, a.house_number]
+      .filter(Boolean)
+      .join(' ');
+    const city = a.city ?? a.town ?? a.village ?? a.municipality ?? a.suburb;
+    return [street, city].filter(Boolean).join(', ') || d.display_name || fallback;
+  } catch (err) {
+    warn('geocoder.failed', 'Reverse geokódovanie zlyhalo', { err: (err as Error).message });
+    return fallback;
+  }
+}
+
 /** Cestná vzdialenosť A→B v km (OSRM), pri výpadku vzdušná × 1,3. */
 export async function roadKm(a: Pt, b: Pt): Promise<number> {
   try {
@@ -66,7 +94,7 @@ export async function estimateRide(id: number): Promise<boolean> {
     r.dropoffLat !== null && r.dropoffLng !== null ? { lat: r.dropoffLat, lng: r.dropoffLng } : null;
   try {
     if (!a) a = await geocodeFirst(r.pickupAddress);
-    if (!b) b = await geocodeFirst(r.dropoffAddress);
+    if (!b && r.dropoffAddress) b = await geocodeFirst(r.dropoffAddress);
   } catch (err) {
     warn('geocoder.failed', `Geokódovanie adresy jazdy #${id} zlyhalo`, {
       rideId: id,

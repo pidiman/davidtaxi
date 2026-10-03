@@ -287,7 +287,7 @@ export function History() {
                     <div className="text-xs text-muted">{r.customerPhone}</div>
                   </td>
                   <td className="px-2.5 py-2.5 text-soft">
-                    {r.pickupAddress} → {r.dropoffAddress}
+                    {r.pickupAddress} → {r.dropoffAddress || 'bez cieľa'}
                   </td>
                   <td className="px-2.5 py-2.5">
                     {r.driverName ?? '–'}{' '}
