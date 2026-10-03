@@ -11,6 +11,7 @@ import {
   type TrackedRide,
 } from '../components/FleetMap';
 import { Header } from '../components/Header';
+import { Modal } from '../components/Modal';
 import {
   api,
   DRIVER_LABEL,
@@ -66,6 +67,7 @@ export function Dispatch() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [hoverDriver, setHoverDriver] = useState<number | null>(null);
+  const [assignId, setAssignId] = useState<number | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [cfg, setCfg] = useState<Config>({ priceMin: 3.5, pricePerKm: 1 });
   const [toast, setToast] = useState('');
@@ -286,17 +288,30 @@ export function Dispatch() {
   const selected = rides.find((r) => r.id === selectedId) ?? null;
   const online = drivers.filter((d) => d.status !== 'offline');
 
+  const assignRide =
+    rides.find((r) => r.id === assignId && (r.status === 'new' || r.status === 'assigned')) ?? null;
+
+  function openAssign(r: Ride) {
+    selectRideFromList(r);
+    setAssignId(r.id);
+  }
+  function closeAssign() {
+    setAssignId(null);
+    setHoverDriver(null);
+  }
+
   const candidates = useMemo(() => {
+    const ride = assignRide;
     return drivers
       .map((d) => {
         const dist =
-          selected?.pickupLat && selected.pickupLng && d.lat && d.lng
-            ? haversineKm(d.lat, d.lng, selected.pickupLat, selected.pickupLng)
+          ride?.pickupLat && ride.pickupLng && d.lat && d.lng
+            ? haversineKm(d.lat, d.lng, ride.pickupLat, ride.pickupLng)
             : null;
         return { ...d, dist };
       })
       .sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || (a.dist ?? 1e9) - (b.dist ?? 1e9));
-  }, [drivers, selected]);
+  }, [drivers, assignRide]);
 
   const estimateKm =
     form.pickupLat && form.pickupLng && form.dropoffLat && form.dropoffLng
@@ -315,6 +330,7 @@ export function Dispatch() {
       });
       setRides((list) => (list.some((x) => x.id === r.id) ? list : [...list, r]));
       setSelectedId(r.id);
+      setAssignId(r.id); // rovno ponúkni výber vodiča
       setForm(emptyForm);
     } catch (err) {
       flash((err as Error).message);
@@ -323,9 +339,11 @@ export function Dispatch() {
     }
   }
 
-  async function assign(rideId: number, driverId: number) {
+  async function assign(rideId: number, driverId: number, name: string) {
     try {
       await api(`/api/rides/${rideId}/assign`, { body: { driverId } });
+      closeAssign();
+      flash(`Jazda poslaná: ${name}`);
     } catch (err) {
       flash((err as Error).message);
     }
@@ -336,6 +354,7 @@ export function Dispatch() {
     try {
       await api(`/api/rides/${ride.id}/cancel`, { method: 'POST' });
       if (selectedId === ride.id) setSelectedId(null);
+      if (assignId === ride.id) closeAssign();
     } catch (err) {
       flash((err as Error).message);
     }
@@ -448,41 +467,6 @@ export function Dispatch() {
               Uložiť a vybrať vodiča
             </button>
           </form>
-
-          <div className="card flex flex-col gap-2.5">
-            <h2 className="h2">
-              Čakajúce <span className="text-taxi">{pending.length}</span>
-            </h2>
-            {pending.length === 0 && <p className="m-0 text-sm text-muted">Žiadne čakajúce objednávky.</p>}
-            {pending.map((r) => (
-              <button
-                key={r.id}
-                type="button"
-                onClick={() => selectRideFromList(r)}
-                className={`rounded-[10px] p-3 text-left ${
-                  r.id === selectedId
-                    ? 'border-2 border-taxi bg-taxi-dim'
-                    : 'border border-line hover:border-[#444]'
-                }`}
-              >
-                <div className="flex justify-between text-[13px] text-muted">
-                  <span>
-                    {fmtTime(r.createdAt)} · {r.scheduledAt ? `na ${fmtTime(r.scheduledAt)}` : 'hneď'}
-                  </span>
-                  <span className={r.status === 'assigned' ? 'font-semibold text-taxi' : ''}>
-                    {r.status === 'assigned' ? `čaká na ${r.driverName}` : STATUS_LABEL[r.status]}
-                  </span>
-                </div>
-                <div className="my-1 font-bold">{r.customerName}</div>
-                <div className="text-sm text-soft">
-                  {r.pickupAddress} → {r.dropoffAddress}
-                  {r.estimateKm !== null && (
-                    <span className="text-muted"> · ~{fmtEstimate(r.estimateKm)}</span>
-                  )}
-                </div>
-              </button>
-            ))}
-          </div>
         </aside>
 
         {/* ---------- stred: mapa + aktívne jazdy ---------- */}
@@ -738,88 +722,54 @@ export function Dispatch() {
           </div>
         </section>
 
-        {/* ---------- pravý stĺpec: priradenie vodiča + detail vozidla ---------- */}
+        {/* ---------- pravý stĺpec: čakajúce objednávky + detail vozidla ---------- */}
         <div className="flex min-w-0 max-w-[380px] flex-[1_1_300px] flex-col gap-4">
-          <aside className="card flex flex-col gap-2.5">
-            <div>
-              <h2 className="h2">Priradiť vodiča</h2>
-              <div className="mt-0.5 text-[13px] text-muted">
-                {selected
-                  ? `Pre: ${selected.customerName}${selected.pickupLat ? ' · zoradené podľa vzdialenosti k A' : ''}`
-                  : 'Vyber objednávku zo zoznamu čakajúcich.'}
-              </div>
-            </div>
-
-            {selected && (selected.status === 'new' || selected.status === 'assigned') && (
-              <>
-                {candidates
-                  .filter((d) => d.status !== 'offline')
-                  .map((d, i) => {
-                    const isCurrent = selected.driverId === d.id;
-                    const top = i === 0 && d.status === 'available';
-                    return (
-                      // biome-ignore lint/a11y/noStaticElementInteractions: hover len zvýrazní trasu na mape
-                      <div
-                        key={d.id}
-                        onMouseEnter={() => setHoverDriver(d.id)}
-                        onMouseLeave={() => setHoverDriver(null)}
-                        className={`flex flex-col gap-2.5 rounded-xl p-3 ${top || isCurrent ? 'border-2 border-taxi' : 'border border-line'} ${d.status === 'break' ? 'opacity-75' : ''}`}
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <div
-                            className={`flex h-10 w-10 items-center justify-center rounded-full font-extrabold ${
-                              d.status === 'available'
-                                ? 'bg-taxi text-black'
-                                : d.status === 'busy'
-                                  ? 'bg-text text-black'
-                                  : 'bg-[#5a5a5a]'
-                            }`}
-                          >
-                            {labelMode === 'initials' ? initials(d.name) : (d.vehicleCallsign ?? '?')}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="font-bold">{d.name}</div>
-                            <div className="truncate text-[13px] text-muted">
-                              {d.vehicleModel ? `${d.vehicleModel} · ${d.vehiclePlate}` : 'bez auta'}
-                            </div>
-                          </div>
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-xs ${d.status === 'available' ? 'bg-taxi font-bold text-black' : 'bg-raised text-soft'}`}
-                          >
-                            {DRIVER_LABEL[d.status]}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between gap-2.5">
-                          <span className="text-sm text-soft">
-                            {d.dist !== null ? `${fmtKm(d.dist)} km vzdušne` : 'poloha neznáma'}
-                          </span>
-                          {isCurrent ? (
-                            <span className="text-sm font-semibold text-taxi">poslané, čaká…</span>
-                          ) : (
-                            <button
-                              type="button"
-                              className={top ? 'btn-primary' : 'btn-outline'}
-                              onClick={() => assign(selected.id, d.id)}
-                            >
-                              {d.status === 'available' ? 'Poslať jazdu' : 'Poslať aj tak'}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                {candidates.every((d) => d.status === 'offline') && (
-                  <p className="m-0 text-sm text-muted">Žiadny vodič nie je online.</p>
-                )}
-                <button type="button" className="btn-ghost mt-1 text-sm" onClick={() => cancel(selected)}>
-                  Zrušiť objednávku
+          <div className="card flex flex-col gap-2.5">
+            <h2 className="h2">
+              Čakajúce <span className="text-taxi">{pending.length}</span>
+            </h2>
+            {pending.length === 0 && <p className="m-0 text-sm text-muted">Žiadne čakajúce objednávky.</p>}
+            {pending.map((r) => (
+              <article
+                key={r.id}
+                className={`flex flex-col gap-2.5 rounded-[10px] p-3 ${
+                  r.id === selectedId
+                    ? 'border-2 border-taxi bg-taxi-dim'
+                    : 'border border-line hover:border-[#444]'
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => selectRideFromList(r)}
+                  className="text-left"
+                  title="Ukázať na mape"
+                >
+                  <div className="flex justify-between gap-2 text-[13px] text-muted">
+                    <span>
+                      {fmtTime(r.createdAt)} · {r.scheduledAt ? `na ${fmtTime(r.scheduledAt)}` : 'hneď'}
+                    </span>
+                    <span className={r.status === 'assigned' ? 'font-semibold text-taxi' : ''}>
+                      {r.status === 'assigned' ? `čaká na ${r.driverName}` : STATUS_LABEL[r.status]}
+                    </span>
+                  </div>
+                  <div className="my-1 font-bold">{r.customerName}</div>
+                  <div className="text-sm text-soft">
+                    {r.pickupAddress} → {r.dropoffAddress}
+                    {r.estimateKm !== null && (
+                      <span className="text-muted"> · ~{fmtEstimate(r.estimateKm)}</span>
+                    )}
+                  </div>
                 </button>
-              </>
-            )}
-            <div className="mt-1 rounded-[10px] bg-ink p-3 text-[13px] leading-snug text-muted">
-              Po odoslaní dostane vodič push notifikáciu. Ak jazdu odmietne, vráti sa medzi čakajúce.
-            </div>
-          </aside>
+                <button
+                  type="button"
+                  className={r.status === 'new' ? 'btn-primary py-2 text-sm' : 'btn-outline py-2 text-sm'}
+                  onClick={() => openAssign(r)}
+                >
+                  {r.status === 'new' ? 'Priradiť vodiča' : 'Zmeniť vodiča'}
+                </button>
+              </article>
+            ))}
+          </div>
           {detailId !== null && (
             <DriverDetailCard
               driverId={detailId}
@@ -830,6 +780,87 @@ export function Dispatch() {
           )}
         </div>
       </main>
+
+      {assignRide && (
+        <Modal title={`Priradiť vodiča · ${assignRide.customerName}`} onClose={closeAssign}>
+          <div className="flex flex-col gap-2.5">
+            <div className="rounded-[10px] bg-ink p-3 text-sm">
+              <div className="text-soft">
+                {assignRide.pickupAddress} → {assignRide.dropoffAddress}
+                {assignRide.estimateKm !== null && (
+                  <span className="text-muted"> · ~{fmtEstimate(assignRide.estimateKm)}</span>
+                )}
+              </div>
+              <div className="mt-1 text-[13px] text-muted">
+                {assignRide.scheduledAt ? `na ${fmtTime(assignRide.scheduledAt)}` : 'hneď'} ·{' '}
+                {assignRide.passengers} os.
+                {assignRide.pickupLat ? ' · vodiči zoradení podľa vzdialenosti k A' : ''}
+              </div>
+            </div>
+            {candidates
+              .filter((d) => d.status !== 'offline')
+              .map((d, i) => {
+                const isCurrent = assignRide.driverId === d.id;
+                const top = i === 0 && d.status === 'available';
+                return (
+                  // biome-ignore lint/a11y/noStaticElementInteractions: hover len zvýrazní trasu na mape
+                  <div
+                    key={d.id}
+                    onMouseEnter={() => setHoverDriver(d.id)}
+                    onMouseLeave={() => setHoverDriver(null)}
+                    className={`flex flex-wrap items-center gap-2.5 rounded-xl p-3 ${top || isCurrent ? 'border-2 border-taxi' : 'border border-line'} ${d.status === 'break' ? 'opacity-75' : ''}`}
+                  >
+                    <div
+                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-extrabold ${
+                        d.status === 'available'
+                          ? 'bg-taxi text-black'
+                          : d.status === 'busy'
+                            ? 'bg-text text-black'
+                            : 'bg-[#5a5a5a]'
+                      }`}
+                    >
+                      {labelMode === 'initials' ? initials(d.name) : (d.vehicleCallsign ?? '?')}
+                    </div>
+                    <div className="min-w-[140px] flex-1">
+                      <div className="flex items-center gap-2 font-bold">
+                        {d.name}
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-normal ${d.status === 'available' ? 'bg-taxi font-bold text-black' : 'bg-raised text-soft'}`}
+                        >
+                          {DRIVER_LABEL[d.status]}
+                        </span>
+                      </div>
+                      <div className="truncate text-[13px] text-muted">
+                        {d.vehicleModel ? `${d.vehicleModel} · ${d.vehiclePlate}` : 'bez auta'} ·{' '}
+                        {d.dist !== null ? `${fmtKm(d.dist)} km vzdušne` : 'poloha neznáma'}
+                      </div>
+                    </div>
+                    {isCurrent ? (
+                      <span className="text-sm font-semibold text-taxi">poslané, čaká…</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className={top ? 'btn-primary' : 'btn-outline'}
+                        onClick={() => assign(assignRide.id, d.id, d.name)}
+                      >
+                        {d.status === 'available' ? 'Poslať jazdu' : 'Poslať aj tak'}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            {candidates.every((d) => d.status === 'offline') && (
+              <p className="m-0 text-sm text-muted">Žiadny vodič nie je online.</p>
+            )}
+            <div className="rounded-[10px] bg-ink p-3 text-[13px] leading-snug text-muted">
+              Po odoslaní dostane vodič push notifikáciu. Ak jazdu odmietne, vráti sa medzi čakajúce.
+            </div>
+            <button type="button" className="btn-ghost text-sm" onClick={() => cancel(assignRide)}>
+              Zrušiť objednávku
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {toast && (
         <div className="fixed bottom-5 left-1/2 z-[2000] -translate-x-1/2 rounded-xl bg-taxi px-5 py-3 font-semibold text-black shadow-2xl">

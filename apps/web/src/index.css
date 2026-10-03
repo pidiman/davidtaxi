@@ -31,6 +31,16 @@ body {
 @utility field {
   @apply w-full rounded-lg border border-line bg-ink px-3 py-2.5 text-[15px] text-text outline-none placeholder:text-muted/70 focus:border-taxi;
 }
+/* tmavé natívne date/time pickery – biela ikona kalendára/hodín */
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"] {
+  color-scheme: dark;
+}
+input::-webkit-calendar-picker-indicator {
+  opacity: 0.9;
+  cursor: pointer;
+}
 @utility label {
   @apply flex flex-col gap-1 text-xs text-muted;
 }

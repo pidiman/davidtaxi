@@ -19,7 +19,8 @@ Dispečing pre taxislužbu: **admin / dispečer dashboard** + **PWA pre vodičov
   - nad mapou je vyhľadávanie adresy (Enter presunie mapu na nájdené miesto) a tlačidlo *Stupava*, legenda je pod mapou,
   - mapa sa sama nehýbe, dispečer s ňou môže voľne pracovať. Všetky neprijaté objednávky sú na mape ako štítky „A · meno“ (vybraná je žltá, poslaná vodičovi má prerušovaný okraj). Klik na štítok vyberie objednávku, klik v zozname Čakajúce posunie mapu na jej bod A, len ak nie je viditeľný,
   - klik na jazdu v *Aktívnych jazdách* zobrazí na mape cestnú trasu A→B, špendlíky A/B a zvýraznené auto (kým ide k zákazníkovi, aj čiaru auto→A); mapa sa raz priblíži na trasu a auto, potom sa sama nehýbe. Otvorí sa aj detail auta. Druhý klik alebo × trasu skryje,
-  - klik na auto v mape zobrazí pod *Priradiť vodiča* detail auta (fotka, údaje) a vodiča (telefón, smena, štart km, jazdy a tržba v smene, aktuálna jazda).
+  - zoznam *Čakajúce* je v pravom stĺpci; každá objednávka má tlačidlo **Priradiť vodiča** (resp. *Zmeniť vodiča*), ktoré otvorí popup s vodičmi zoradenými podľa stavu a vzdialenosti k A. Po uložení novej objednávky sa popup otvorí automaticky,
+  - klik na auto v mape zobrazí pod zoznamom *Čakajúce* detail auta (fotka, údaje) a vodiča (telefón, smena, štart km, jazdy a tržba v smene, aktuálna jazda).
 - Vodič dostane push notifikáciu, vidí trasu A → B a meno a telefón zákazníka. Jazdu prijme alebo odmietne.
 - **Nová jazda sa nedá prehliadnuť:**
   - cez celú obrazovku sa zobrazí blikajúce okno (1× za sekundu) a appka zvoní a vibruje v slučke, kým vodič jazdu neprijme alebo neodmietne,
