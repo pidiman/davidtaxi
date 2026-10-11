@@ -11,6 +11,7 @@ import { sendPush } from '../push.js';
 import { emitDispatch, emitDriver } from '../realtime.js';
 import { HttpError, num, str } from '../util.js';
 import { openShiftOf } from './shifts.js';
+import { issueTrackLink } from './track.js';
 
 type RideStatus = Ride['status'];
 const ACTIVE: RideStatus[] = ['assigned', 'accepted', 'arrived', 'in_progress'];
@@ -307,6 +308,10 @@ export async function rideRoutes(app: FastifyInstance) {
     const r = await ownRide(Number(req.params.id), req.user.id, ['assigned']);
     await db.update(rides).set({ status: 'accepted', acceptedAt: new Date() }).where(eq(rides.id, r.id));
     await setDriverStatus(req.user.id, 'busy');
+    // odkaz na sledovanie príchodu taxíka (+ SMS zákazníkovi, ak je zapnutá brána) – na pozadí
+    issueTrackLink(r.id)
+      .then(() => broadcastRide(r.id))
+      .catch((err) => warn('track.error', `Odkaz na sledovanie jazdy #${r.id} zlyhal`, { err: String(err) }));
     const waitS = r.assignedAt ? Math.round((Date.now() - r.assignedAt.getTime()) / 1000) : undefined;
     audit(
       'ride.accepted',

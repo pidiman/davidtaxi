@@ -9,6 +9,7 @@ Dispečing pre taxislužbu: **admin / dispečer dashboard** + **PWA pre vodičov
 - Po dokončení jazdy tlačidlo **Komentár k jazde** (rovnaký formulár ako incident, vybraná posledná jazda). Dispečing ich vidí v *Incidenty → Komentáre*, rovno ako vyriešené.
 - **Moje jazdy** (menu ☰): jazdy aktuálnej smeny so súhrnom (jazdy, km, tržba), výber starších smien.
 - **História jázd** má filtre: obdobie (dnes, včera, 7/30 dní, mesiac, vlastné), vodič, auto, stav, zdroj a hľadanie (zákazník, telefón, adresa, #ID) + súhrn.
+- **Sledovanie taxíka zákazníkom:** keď vodič prijme jazdu, vznikne verejný odkaz `/t/<token>` – mapa s autom, odhad príchodu (OSRM), ŠPZ, farba, model a krstné meno vodiča. Ak je nastavená SMS brána (`SMS_PROVIDER=webhook`), odkaz príde zákazníkovi SMS automaticky. Dispečer má pri jazde tlačidlo *🔗 odkaz* (kopírovať, otvoriť, poslať SMS). Poloha auta je viditeľná len kým ide k zákazníkovi / čaká; odkaz vyprší 2 h po jazde.
 - **Majiteľ** má rovnaké práva ako admin; na jeho e-mail budú neskôr chodiť prevádzkové info (prehľady, upozornenia). Rolu nastavíš v *Admin → Dispečeri a admini*.
 - Admin (sekcia *Admin* v navigácii) spravuje vodičov, dispečerov a autá (vytvorenie, úprava, deaktivácia, zmazanie). Pri autách eviduje farbu, rok, počet miest, karosériu, palivo, VIN a platnosť STK, EK a PZP s upozornením 30 dní pred koncom.
   - Vodiča alebo auto s jazdami v histórii nemožno zmazať, len deaktivovať, aby história ostala úplná.

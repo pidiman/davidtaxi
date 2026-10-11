@@ -16,6 +16,10 @@ export const env = {
   vapidPublic: process.env.VAPID_PUBLIC_KEY ?? '',
   vapidPrivate: process.env.VAPID_PRIVATE_KEY ?? '',
   vapidSubject: process.env.VAPID_SUBJECT ?? 'mailto:admin@example.com',
+  // SMS s odkazom na sledovanie taxíka: 'none' | 'webhook' (POST {to, text} napr. do n8n / SMS gateway)
+  smsProvider: process.env.SMS_PROVIDER ?? 'none',
+  smsWebhookUrl: process.env.SMS_WEBHOOK_URL ?? '',
+  smsWebhookToken: process.env.SMS_WEBHOOK_TOKEN ?? '',
   webDist: process.env.WEB_DIST ?? new URL('../../web/dist', import.meta.url).pathname,
   migrationsDir: process.env.MIGRATIONS_DIR ?? new URL('../drizzle', import.meta.url).pathname,
 };

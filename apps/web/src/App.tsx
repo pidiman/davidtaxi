@@ -9,6 +9,7 @@ import { History } from './pages/History';
 import { Incidents } from './pages/Incidents';
 import { Login } from './pages/Login';
 import { Schedule } from './pages/Schedule';
+import { Track } from './pages/Track';
 
 function Guard({ roles, children }: { roles: Role[]; children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -31,6 +32,7 @@ export function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/t/:token" element={<Track />} />
           <Route
             path="/dispatch"
             element={

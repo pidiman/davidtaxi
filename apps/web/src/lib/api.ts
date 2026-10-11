@@ -138,6 +138,8 @@ export type Driver = {
 
 export type Ride = {
   id: number;
+  trackToken?: string | null;
+  trackSentAt?: string | null;
   status: RideStatus;
   customerName: string;
   customerPhone: string | null;

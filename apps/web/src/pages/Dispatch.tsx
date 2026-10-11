@@ -13,6 +13,7 @@ import {
 } from '../components/FleetMap';
 import { Header } from '../components/Header';
 import { Modal } from '../components/Modal';
+import { TrackLinkModal } from '../components/TrackLinkModal';
 import {
   api,
   DRIVER_LABEL,
@@ -69,6 +70,7 @@ export function Dispatch() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [hoverDriver, setHoverDriver] = useState<number | null>(null);
   const [assignId, setAssignId] = useState<number | null>(null);
+  const [linkRide, setLinkRide] = useState<Ride | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [cfg, setCfg] = useState<Config>({ priceMin: 3.5, pricePerKm: 1 });
   const [toast, setToast] = useState('');
@@ -724,6 +726,19 @@ export function Dispatch() {
                           {STATUS_LABEL[r.status]}
                         </span>
                         {r.source === 'street' && <StreetBadge />}
+                        {r.source === 'dispatch' && r.status !== 'in_progress' && (
+                          <button
+                            type="button"
+                            title="Odkaz pre zákazníka na sledovanie taxíka"
+                            className={`ml-1.5 rounded-full border px-2 py-0.5 text-xs whitespace-nowrap ${r.trackSentAt ? 'border-taxi/60 text-taxi' : 'border-line text-soft hover:border-taxi hover:text-taxi'}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setLinkRide(r);
+                            }}
+                          >
+                            {r.trackSentAt ? '✓ SMS' : '🔗 odkaz'}
+                          </button>
+                        )}
                       </td>
                       <td className="px-2.5 py-2.5 text-right whitespace-nowrap tabular-nums text-soft">
                         {fmtEstimate(r.estimateKm)}
@@ -889,6 +904,13 @@ export function Dispatch() {
             </button>
           </div>
         </Modal>
+      )}
+
+      {linkRide && (
+        <TrackLinkModal
+          ride={rides.find((x) => x.id === linkRide.id) ?? linkRide}
+          onClose={() => setLinkRide(null)}
+        />
       )}
 
       {toast && (

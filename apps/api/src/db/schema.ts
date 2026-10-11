@@ -103,6 +103,9 @@ export const rides = pgTable(
     acceptedAt: timestamp('accepted_at', { withTimezone: true }),
     startedAt: timestamp('started_at', { withTimezone: true }),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
+    // verejný odkaz pre zákazníka na sledovanie príchodu taxíka (/t/<token>), vzniká pri prijatí jazdy
+    trackToken: text('track_token').unique(),
+    trackSentAt: timestamp('track_sent_at', { withTimezone: true }),
   },
   (t) => [index('rides_status_idx').on(t.status), index('rides_driver_idx').on(t.driverId)],
 );

@@ -48,6 +48,9 @@ services:
       GEOCODER_URL: ${GEOCODER_URL:-https://nominatim.openstreetmap.org/search}
       OSRM_URL: ${OSRM_URL:-https://router.project-osrm.org}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      SMS_PROVIDER: ${SMS_PROVIDER:-none}
+      SMS_WEBHOOK_URL: ${SMS_WEBHOOK_URL:-}
+      SMS_WEBHOOK_TOKEN: ${SMS_WEBHOOK_TOKEN:-}
       LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-90}
       TZ: Europe/Bratislava
     ports:

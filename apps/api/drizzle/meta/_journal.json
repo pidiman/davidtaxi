@@ -57,6 +57,13 @@
       "when": 1791047500020,
       "tag": "0007_fluffy_doctor_doom",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791687991160,
+      "tag": "0008_fat_catseye",
+      "breakpoints": true
     }
   ]
 }

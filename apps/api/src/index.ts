@@ -17,6 +17,7 @@ import { incidentRoutes } from './routes/incidents.js';
 import { miscRoutes } from './routes/misc.js';
 import { rideRoutes, startAssignReminders } from './routes/rides.js';
 import { shiftRoutes } from './routes/shifts.js';
+import { trackRoutes } from './routes/track.js';
 import { HttpError } from './util.js';
 
 const app = Fastify({
@@ -83,6 +84,7 @@ await app.register(rideRoutes);
 await app.register(shiftRoutes);
 await app.register(miscRoutes);
 await app.register(incidentRoutes);
+await app.register(trackRoutes);
 
 // Frontend (dashboard + PWA) – rovnaký origin ako API, takže netreba CORS
 if (existsSync(env.webDist)) {
